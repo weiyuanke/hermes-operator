@@ -1,0 +1,60 @@
+apiVersion: core.hermes.io/v1
+kind: HermesAgent
+metadata:
+  name: my-hermes-agent
+  labels:
+    app: my-app
+spec:
+  # Container image for Hermes agent (optional, defaults to ghcr.io/hermes-project/hermes-agent:latest)
+  image: ghcr.io/hermes-project/hermes-agent:latest
+  
+  # Image pull policy
+  imagePullPolicy: IfNotPresent
+  
+  # Service port where Hermes agent will listen
+  servicePort: 8080
+  
+  # Resource requirements (optional)
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Custom configuration for Hermes agent (optional)
+  config:
+    LOG_LEVEL: "info"
+    ENABLE_TOOLS: "true"
+  
+  # Additional labels for the Pod (optional)
+  labels:
+    environment: production
+  
+  # Additional annotations for the Pod (optional)
+  annotations:
+    prometheus.io/scrape: "true"
+  
+  # Hermes agent specific configuration (optional)
+  hermesConfig:
+    # AI model to use
+    model: "gpt-4"
+    
+    # Maximum number of iterations
+    maxIterations: 100
+    
+    # System prompt for the agent
+    systemPrompt: "You are a helpful AI assistant."
+    
+    # Tools enabled for the agent
+    tools:
+      - "web_search"
+      - "calculator"
+      - "code_interpreter"
+    
+    # Reference to a Kubernetes Secret containing the API key
+    # The Secret should have a key named "api-key"
+    apiKeySecretRef:
+      name: my-api-key-secret
+      namespace: default

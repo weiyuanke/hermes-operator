@@ -1,0 +1,35 @@
+{
+  "name": "my-hermes-agent",
+  "namespace": "default",
+  "image": "ghcr.io/hermes-project/hermes-agent:latest",
+  "imagePullPolicy": "IfNotPresent",
+  "servicePort": 8080,
+  "resources": {
+    "requests": {
+      "memory": "256Mi",
+      "cpu": "250m"
+    },
+    "limits": {
+      "memory": "512Mi",
+      "cpu": "500m"
+    }
+  },
+  "config": {
+    "LOG_LEVEL": "info",
+    "ENABLE_TOOLS": "true"
+  },
+  "labels": {
+    "environment": "production"
+  },
+  "annotations": {
+    "prometheus.io/scrape": "true"
+  },
+  "model": "gpt-4",
+  "maxIterations": 100,
+  "systemPrompt": "You are a helpful AI assistant.",
+  "tools": ["web_search", "calculator", "code_interpreter"],
+  "apiKeySecretRef": {
+    "name": "my-api-key-secret",
+    "namespace": "default"
+  }
+}
