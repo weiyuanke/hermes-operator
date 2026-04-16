@@ -56,7 +56,7 @@ type HermesAgentSpec struct {
 
 	// Image is the container image for Hermes agent.
 	// +optional
-	// +kubebuilder:default="ghcr.io/aisuko/hermes:latest"
+	// +kubebuilder:default="docker.io/nousresearch/hermes-agent:latest"
 	Image string `json:"image,omitempty"`
 
 	// ServicePort is the port where the Hermes agent service will listen.

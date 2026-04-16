@@ -86,7 +86,7 @@ spec:
                   Examples: "https://api.moonshot.cn/v1", "https://api.openai.com/v1"
                 type: string
               image:
-                default: ghcr.io/aisuko/hermes:latest
+                default: docker.io/nousresearch/hermes-agent:latest
                 description: Image is the container image for Hermes agent.
                 type: string
               maxTurns:

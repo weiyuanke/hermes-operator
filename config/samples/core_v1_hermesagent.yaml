@@ -32,8 +32,8 @@ spec:
   # Available: kawaii, helpful, concise, technical, creative, teacher, etc.
   # personality: kawaii
 
-  # Optional: container image (defaults to ghcr.io/aisuko/hermes:latest)
-  # image: ghcr.io/aisuko/hermes:latest
+  # Optional: container image (defaults to docker.io/nousresearch/hermes-agent:latest)
+  # image: docker.io/nousresearch/hermes-agent:latest
 
   # Optional: service port (defaults to 8000)
   # servicePort: 8000
