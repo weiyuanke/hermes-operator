@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,45 +33,37 @@ type Server struct {
 
 // HermesAgentRequest represents the request body for creating a HermesAgent
 type HermesAgentRequest struct {
-	Name          string           `json:"name"`
-	Namespace     string           `json:"namespace,omitempty"`
-	Model         string           `json:"model"`
-	Provider      string           `json:"provider"`
-	BaseURL       string           `json:"baseURL,omitempty"`
-	APISecretRef  SecretRefRequest `json:"apiSecretRef"`
-	MaxTurns      int              `json:"maxTurns,omitempty"`
-	Personality   string           `json:"personality,omitempty"`
-	Image         string           `json:"image,omitempty"`
-	GatewayPort   int              `json:"gatewayPort,omitempty"`
-	DashboardPort int              `json:"dashboardPort,omitempty"`
-}
-
-// SecretRefRequest represents a reference to a Kubernetes Secret in API requests
-type SecretRefRequest struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace,omitempty"`
-	Key       string `json:"key,omitempty"`
+	Name               string                      `json:"name"`
+	Namespace          string                      `json:"namespace,omitempty"`
+	Image              string                      `json:"image,omitempty"`
+	GatewayPort        int                         `json:"gatewayPort,omitempty"`
+	DashboardPort      int                         `json:"dashboardPort,omitempty"`
+	Env                map[string]string           `json:"env,omitempty"`
+	ConfigYaml         string                      `json:"configYaml,omitempty"`
+	SoulMd             string                      `json:"soulMd,omitempty"`
+	GatewayResources   corev1.ResourceRequirements `json:"gatewayResources,omitempty"`
+	DashboardResources corev1.ResourceRequirements `json:"dashboardResources,omitempty"`
 }
 
 // HermesAgentResponse represents the response for a HermesAgent
 type HermesAgentResponse struct {
-	Name              string      `json:"name"`
-	Namespace         string      `json:"namespace"`
-	Model             string      `json:"model"`
-	Provider          string      `json:"provider"`
-	BaseURL           string      `json:"baseURL,omitempty"`
-	MaxTurns          int         `json:"maxTurns,omitempty"`
-	Personality       string      `json:"personality,omitempty"`
-	Image             string      `json:"image,omitempty"`
-	GatewayPort       int         `json:"gatewayPort,omitempty"`
-	DashboardPort     int         `json:"dashboardPort,omitempty"`
-	Phase             string      `json:"phase,omitempty"`
-	GatewayEndpoint   string      `json:"gatewayEndpoint,omitempty"`
-	DashboardEndpoint string      `json:"dashboardEndpoint,omitempty"`
-	PodIP             string      `json:"podIP,omitempty"`
-	ServiceName       string      `json:"serviceName,omitempty"`
-	Conditions        []Condition `json:"conditions,omitempty"`
-	CreationTimestamp metav1.Time `json:"creationTimestamp,omitempty"`
+	Name               string                      `json:"name"`
+	Namespace          string                      `json:"namespace"`
+	Image              string                      `json:"image,omitempty"`
+	GatewayPort        int                         `json:"gatewayPort,omitempty"`
+	DashboardPort      int                         `json:"dashboardPort,omitempty"`
+	Env                map[string]string           `json:"env,omitempty"`
+	ConfigYaml         string                      `json:"configYaml,omitempty"`
+	SoulMd             string                      `json:"soulMd,omitempty"`
+	GatewayResources   corev1.ResourceRequirements `json:"gatewayResources,omitempty"`
+	DashboardResources corev1.ResourceRequirements `json:"dashboardResources,omitempty"`
+	GatewayEndpoint    string                      `json:"gatewayEndpoint,omitempty"`
+	DashboardEndpoint  string                      `json:"dashboardEndpoint,omitempty"`
+	Phase              string                      `json:"phase,omitempty"`
+	PodIP              string                      `json:"podIP,omitempty"`
+	ServiceName        string                      `json:"serviceName,omitempty"`
+	Conditions         []Condition                 `json:"conditions,omitempty"`
+	CreationTimestamp  metav1.Time                 `json:"creationTimestamp,omitempty"`
 }
 
 // Condition represents a condition of the HermesAgent
@@ -311,18 +304,6 @@ func (s *Server) createHermesAgent(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, http.StatusBadRequest, "Name is required")
 		return
 	}
-	if req.Model == "" {
-		s.respondError(w, http.StatusBadRequest, "Model is required")
-		return
-	}
-	if req.Provider == "" {
-		s.respondError(w, http.StatusBadRequest, "Provider is required")
-		return
-	}
-	if req.APISecretRef.Name == "" {
-		s.respondError(w, http.StatusBadRequest, "APISecretRef.name is required")
-		return
-	}
 
 	namespace := req.Namespace
 	if namespace == "" {
@@ -348,19 +329,14 @@ func (s *Server) createHermesAgent(w http.ResponseWriter, r *http.Request) {
 			Namespace: namespace,
 		},
 		Spec: corev1alpha1.HermesAgentSpec{
-			Model:    req.Model,
-			Provider: req.Provider,
-			BaseURL:  req.BaseURL,
-			APISecretRef: corev1alpha1.SecretRef{
-				Name:      req.APISecretRef.Name,
-				Namespace: req.APISecretRef.Namespace,
-				Key:       req.APISecretRef.Key,
-			},
-			MaxTurns:      req.MaxTurns,
-			Personality:   req.Personality,
-			Image:         req.Image,
-			GatewayPort:   req.GatewayPort,
-			DashboardPort: req.DashboardPort,
+			Image:              req.Image,
+			GatewayPort:        req.GatewayPort,
+			DashboardPort:      req.DashboardPort,
+			Env:                req.Env,
+			ConfigYaml:         req.ConfigYaml,
+			SoulMd:             req.SoulMd,
+			GatewayResources:   req.GatewayResources,
+			DashboardResources: req.DashboardResources,
 		},
 	}
 
@@ -418,30 +394,6 @@ func (s *Server) patchHermesAgent(w http.ResponseWriter, r *http.Request, namesp
 	}
 
 	// Update spec
-	if req.Model != "" {
-		instance.Spec.Model = req.Model
-	}
-	if req.Provider != "" {
-		instance.Spec.Provider = req.Provider
-	}
-	if req.BaseURL != "" {
-		instance.Spec.BaseURL = req.BaseURL
-	}
-	if req.APISecretRef.Name != "" {
-		instance.Spec.APISecretRef.Name = req.APISecretRef.Name
-		if req.APISecretRef.Namespace != "" {
-			instance.Spec.APISecretRef.Namespace = req.APISecretRef.Namespace
-		}
-		if req.APISecretRef.Key != "" {
-			instance.Spec.APISecretRef.Key = req.APISecretRef.Key
-		}
-	}
-	if req.MaxTurns != 0 {
-		instance.Spec.MaxTurns = req.MaxTurns
-	}
-	if req.Personality != "" {
-		instance.Spec.Personality = req.Personality
-	}
 	if req.Image != "" {
 		instance.Spec.Image = req.Image
 	}
@@ -450,6 +402,15 @@ func (s *Server) patchHermesAgent(w http.ResponseWriter, r *http.Request, namesp
 	}
 	if req.DashboardPort != 0 {
 		instance.Spec.DashboardPort = req.DashboardPort
+	}
+	if req.Env != nil {
+		instance.Spec.Env = req.Env
+	}
+	if req.ConfigYaml != "" {
+		instance.Spec.ConfigYaml = req.ConfigYaml
+	}
+	if req.SoulMd != "" {
+		instance.Spec.SoulMd = req.SoulMd
 	}
 
 	if err := s.client.Update(ctx, instance); err != nil {
@@ -465,17 +426,15 @@ func (s *Server) toResponse(instance *corev1alpha1.HermesAgent) HermesAgentRespo
 	resp := HermesAgentResponse{
 		Name:              instance.Name,
 		Namespace:         instance.Namespace,
-		Model:             instance.Spec.Model,
-		Provider:          instance.Spec.Provider,
-		BaseURL:           instance.Spec.BaseURL,
-		MaxTurns:          instance.Spec.MaxTurns,
-		Personality:       instance.Spec.Personality,
 		Image:             instance.Spec.Image,
 		GatewayPort:       instance.Status.GatewayPort,
 		DashboardPort:     instance.Status.DashboardPort,
-		Phase:             instance.Status.Phase,
+		Env:               instance.Spec.Env,
+		ConfigYaml:        instance.Spec.ConfigYaml,
+		SoulMd:            instance.Spec.SoulMd,
 		GatewayEndpoint:   instance.Status.GatewayEndpoint,
 		DashboardEndpoint: instance.Status.DashboardEndpoint,
+		Phase:             instance.Status.Phase,
 		PodIP:             instance.Status.PodIP,
 		ServiceName:       instance.Status.ServiceName,
 		CreationTimestamp: instance.CreationTimestamp,
@@ -512,39 +471,33 @@ func (s *Server) respondJSON(w http.ResponseWriter, status int, data interface{}
 func (s *Server) respondError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   http.StatusText(status),
-		Message: message,
-	})
+	if err := json.NewEncoder(w).Encode(ErrorResponse{Error: message}); err != nil {
+		s.log.Error(err, "Failed to encode error response")
+	}
 }
 
-// extractNamespace extracts namespace from path like /api/v1/namespaces/default/...
+// extractNamespace extracts the namespace from the path
 func extractNamespace(path string) string {
-	prefix := "/api/v1/namespaces/"
+	// Path format: /api/v1/namespaces/{namespace}/...
+	prefix := apiGroup + "/namespaces/"
 	if len(path) > len(prefix) {
-		remaining := path[len(prefix):]
-		for i, c := range remaining {
+		rest := path[len(prefix):]
+		for i, c := range rest {
 			if c == '/' {
-				return remaining[:i]
+				return rest[:i]
 			}
 		}
-		return remaining
+		return rest
 	}
 	return ""
 }
 
-// extractName extracts name from path like /api/v1/hermesagent/test-agent
+// extractName extracts the name from the path
 func extractName(path string) string {
-	prefix := "/api/v1/hermesagent/"
+	// Path format: /api/v1/hermesagent/{name}
+	prefix := apiGroup + "/hermesagent/"
 	if len(path) > len(prefix) {
-		name := path[len(prefix):]
-		// Remove query string if present
-		for i, c := range name {
-			if c == '?' {
-				return name[:i]
-			}
-		}
-		return name
+		return path[len(prefix):]
 	}
 	return ""
 }

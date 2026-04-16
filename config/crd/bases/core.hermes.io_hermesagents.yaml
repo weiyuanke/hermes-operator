@@ -15,14 +15,6 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: AI model
-      jsonPath: .spec.model
-      name: Model
-      type: string
-    - description: Model provider
-      jsonPath: .spec.provider
-      name: Provider
-      type: string
     - description: Current phase
       jsonPath: .status.phase
       name: Status
@@ -63,31 +55,10 @@ spec:
           spec:
             description: spec defines the desired state of HermesAgent
             properties:
-              apiSecretRef:
+              configYaml:
                 description: |-
-                  APISecretRef is the reference to a Kubernetes Secret containing the API key.
-                  The secret should have a key named "api-key".
-                properties:
-                  key:
-                    default: api-key
-                    description: Key is the key in the Secret data. Defaults to "api-key".
-                    type: string
-                  name:
-                    description: Name is the name of the Secret.
-                    type: string
-                  namespace:
-                    description: |-
-                      Namespace is the namespace of the Secret.
-                      If not specified, the same namespace as the HermesAgent is used.
-                    type: string
-                required:
-                - name
-                type: object
-              baseURL:
-                default: https://api.moonshot.cn/v1
-                description: |-
-                  BaseURL is the API endpoint for the model provider.
-                  Examples: "https://api.moonshot.cn/v1", "https://api.openai.com/v1"
+                  ConfigYaml defines the content of config.yaml file.
+                  This will be written to /opt/data/config.yaml in the container.
                 type: string
               dashboardPort:
                 default: 9119
@@ -155,6 +126,13 @@ spec:
                       otherwise to an implementation-defined value. Requests cannot exceed Limits.
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
+                type: object
+              env:
+                additionalProperties:
+                  type: string
+                description: |-
+                  Env defines environment variables to be written to .env file.
+                  These will be written to /opt/data/.env in the container.
                 type: object
               gatewayPort:
                 default: 8642
@@ -227,28 +205,11 @@ spec:
                 default: docker.io/nousresearch/hermes-agent:latest
                 description: Image is the container image for Hermes agent.
                 type: string
-              maxTurns:
-                default: 90
-                description: MaxTurns is the maximum number of conversation turns.
-                type: integer
-              model:
+              soulMd:
                 description: |-
-                  Model is the AI model name to use.
-                  Examples: "kimi-k2.5", "gpt-4", "claude-3-sonnet"
+                  SoulMd defines the content of SOUL.md file.
+                  This will be written to /opt/data/SOUL.md in the container.
                 type: string
-              personality:
-                default: kawaii
-                description: Personality is the agent's personality preset.
-                type: string
-              provider:
-                description: |-
-                  Provider is the model provider name.
-                  Examples: "kimi-coding-cn", "openai", "openrouter"
-                type: string
-            required:
-            - apiSecretRef
-            - model
-            - provider
             type: object
           status:
             description: status defines the observed state of HermesAgent

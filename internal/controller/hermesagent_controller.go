@@ -17,9 +17,11 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,11 +39,11 @@ import (
 )
 
 const (
-	defaultHermesImage   = "docker.io/nousresearch/hermes-agent:latest"
-	defaultGatewayPort   = 8642
-	defaultDashboardPort = 9119
-	hermesAgentFinalizer = "hermesagent.finalizers.hermes.io"
-	hermesDataVolumeName = "hermes-data"
+	defaultHermesImage     = "docker.io/nousresearch/hermes-agent:latest"
+	defaultGatewayPort     = 8642
+	defaultDashboardPort   = 9119
+	hermesAgentFinalizer   = "hermesagent.finalizers.hermes.io"
+	hermesConfigVolumeName = "hermes-config"
 )
 
 // HermesAgentReconciler reconciles a HermesAgent object
@@ -57,7 +59,7 @@ var log = logf.Log.WithName("controller_hermesagent")
 // +kubebuilder:rbac:groups=core.hermes.io,resources=hermesagents/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles the main reconciliation logic for HermesAgent
 func (r *HermesAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -82,6 +84,12 @@ func (r *HermesAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Add finalizer if not present
 	if !containsFinalizer(instance, hermesAgentFinalizer) {
 		return r.addFinalizer(ctx, instance)
+	}
+
+	// Reconcile the ConfigMap
+	_, err = r.reconcileConfigMap(ctx, instance)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// Reconcile the Pod
@@ -110,10 +118,21 @@ func (r *HermesAgentReconciler) handleDeletion(ctx context.Context, instance *co
 	reqLogger := log.WithValues("HermesAgent.Name", instance.Name)
 	reqLogger.Info("Handling deletion of HermesAgent")
 
+	// Delete the associated ConfigMap
+	configMapName := getConfigMapName(instance)
+	configMap := &corev1.ConfigMap{}
+	err := r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: instance.Namespace}, configMap)
+	if err == nil {
+		reqLogger.Info("Deleting ConfigMap", "ConfigMap.Name", configMapName)
+		if err := r.Delete(ctx, configMap); err != nil && !errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Delete the associated Pod
 	podName := getPodName(instance)
 	pod := &corev1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{Name: podName, Namespace: instance.Namespace}, pod)
+	err = r.Get(ctx, client.ObjectKey{Name: podName, Namespace: instance.Namespace}, pod)
 	if err == nil {
 		reqLogger.Info("Deleting Pod", "Pod.Name", podName)
 		if err := r.Delete(ctx, pod); err != nil && !errors.IsNotFound(err) {
@@ -152,10 +171,82 @@ func (r *HermesAgentReconciler) addFinalizer(ctx context.Context, instance *core
 	return ctrl.Result{Requeue: true}, nil
 }
 
+// reconcileConfigMap creates or updates the ConfigMap for HermesAgent configuration files
+func (r *HermesAgentReconciler) reconcileConfigMap(ctx context.Context, instance *corev1alpha1.HermesAgent) (ctrl.Result, error) {
+	reqLogger := log.WithValues("HermesAgent.Name", instance.Name)
+	configMapName := getConfigMapName(instance)
+
+	// Build ConfigMap data
+	configMapData := make(map[string]string)
+
+	// Write .env file
+	if len(instance.Spec.Env) > 0 {
+		var envContent bytes.Buffer
+		for key, value := range instance.Spec.Env {
+			envContent.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+		}
+		configMapData[".env"] = envContent.String()
+	}
+
+	// Write config.yaml
+	if instance.Spec.ConfigYaml != "" {
+		configMapData["config.yaml"] = instance.Spec.ConfigYaml
+	}
+
+	// Write SOUL.md
+	if instance.Spec.SoulMd != "" {
+		configMapData["SOUL.md"] = instance.Spec.SoulMd
+	}
+
+	// Get existing ConfigMap
+	configMap := &corev1.ConfigMap{}
+	err := r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: instance.Namespace}, configMap)
+
+	// Create ConfigMap if it doesn't exist
+	if errors.IsNotFound(err) {
+		configMap = r.createConfigMap(instance, configMapName, configMapData)
+		if err := r.Create(ctx, configMap); err != nil {
+			return ctrl.Result{}, err
+		}
+		reqLogger.Info("Created ConfigMap", "ConfigMap.Name", configMapName)
+		return ctrl.Result{}, nil
+	}
+
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Update ConfigMap if data changed
+	if !reflect.DeepEqual(configMap.Data, configMapData) {
+		configMap.Data = configMapData
+		if err := r.Update(ctx, configMap); err != nil {
+			return ctrl.Result{}, err
+		}
+		reqLogger.Info("Updated ConfigMap", "ConfigMap.Name", configMapName)
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// createConfigMap creates a new ConfigMap for HermesAgent configuration
+func (r *HermesAgentReconciler) createConfigMap(instance *corev1alpha1.HermesAgent, configMapName string, data map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: instance.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(instance, corev1alpha1.GroupVersion.WithKind("HermesAgent")),
+			},
+		},
+		Data: data,
+	}
+}
+
 // reconcilePod creates or updates the Pod for HermesAgent
 func (r *HermesAgentReconciler) reconcilePod(ctx context.Context, instance *corev1alpha1.HermesAgent) (ctrl.Result, error) {
 	reqLogger := log.WithValues("HermesAgent.Name", instance.Name)
 	podName := getPodName(instance)
+	configMapName := getConfigMapName(instance)
 
 	// Get existing Pod
 	pod := &corev1.Pod{}
@@ -163,7 +254,7 @@ func (r *HermesAgentReconciler) reconcilePod(ctx context.Context, instance *core
 
 	// Create Pod if it doesn't exist
 	if errors.IsNotFound(err) {
-		pod, err = r.createPod(ctx, instance)
+		pod, err = r.createPod(ctx, instance, configMapName)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -176,13 +267,13 @@ func (r *HermesAgentReconciler) reconcilePod(ctx context.Context, instance *core
 	}
 
 	// Check if Pod needs to be updated
-	if r.podNeedsUpdate(pod, instance) {
+	if r.podNeedsUpdate(pod, instance, configMapName) {
 		reqLogger.Info("Updating Pod", "Pod.Name", pod.Name)
 		if err := r.Delete(ctx, pod); err != nil {
 			return ctrl.Result{}, err
 		}
 		// Create new Pod with updated spec
-		pod, err = r.createPod(ctx, instance)
+		pod, err = r.createPod(ctx, instance, configMapName)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -193,7 +284,7 @@ func (r *HermesAgentReconciler) reconcilePod(ctx context.Context, instance *core
 }
 
 // createPod creates a new Pod for the HermesAgent
-func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1alpha1.HermesAgent) (*corev1.Pod, error) {
+func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1alpha1.HermesAgent, configMapName string) (*corev1.Pod, error) {
 	podName := getPodName(instance)
 
 	// Get image
@@ -231,13 +322,8 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		Env: gatewayEnvVars,
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      hermesDataVolumeName,
-				MountPath: "/opt/data",
-			},
-		},
+		Env:          gatewayEnvVars,
+		VolumeMounts: r.buildVolumeMounts(),
 	}
 
 	// Set gateway resource requirements
@@ -270,13 +356,8 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		Env: dashboardEnvVars,
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      hermesDataVolumeName,
-				MountPath: "/opt/data",
-			},
-		},
+		Env:          dashboardEnvVars,
+		VolumeMounts: r.buildVolumeMounts(),
 	}
 
 	// Set dashboard resource requirements
@@ -299,14 +380,7 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 	// Build Pod spec
 	podSpec := corev1.PodSpec{
 		Containers: []corev1.Container{gatewayContainer, dashboardContainer},
-		Volumes: []corev1.Volume{
-			{
-				Name: hermesDataVolumeName,
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-		},
+		Volumes:    r.buildVolumes(configMapName),
 	}
 
 	// Build Pod labels
@@ -346,65 +420,36 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 	return pod, nil
 }
 
-// buildGatewayEnvVars builds environment variables for the gateway container
-func (r *HermesAgentReconciler) buildGatewayEnvVars(instance *corev1alpha1.HermesAgent, port int) []corev1.EnvVar {
-	// Get secret key
-	secretKey := instance.Spec.APISecretRef.Key
-	if secretKey == "" {
-		secretKey = "api-key"
-	}
-
-	// Get base URL
-	baseURL := instance.Spec.BaseURL
-	if baseURL == "" {
-		baseURL = "https://api.moonshot.cn/v1"
-	}
-
-	// Get max turns
-	maxTurns := instance.Spec.MaxTurns
-	if maxTurns == 0 {
-		maxTurns = 90
-	}
-
-	// Get personality
-	personality := instance.Spec.Personality
-	if personality == "" {
-		personality = "kawaii"
-	}
-
-	envVars := []corev1.EnvVar{
+// buildVolumeMounts builds the volume mounts for both containers
+func (r *HermesAgentReconciler) buildVolumeMounts() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
 		{
-			Name:  "HERMES_MODEL",
-			Value: instance.Spec.Model,
+			Name:      hermesConfigVolumeName,
+			MountPath: "/opt/data",
+			ReadOnly:  true,
 		},
+	}
+}
+
+// buildVolumes builds the volumes for the Pod
+func (r *HermesAgentReconciler) buildVolumes(configMapName string) []corev1.Volume {
+	return []corev1.Volume{
 		{
-			Name:  "HERMES_PROVIDER",
-			Value: instance.Spec.Provider,
-		},
-		{
-			Name:  "HERMES_BASE_URL",
-			Value: baseURL,
-		},
-		{
-			Name: "HERMES_API_KEY",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
+			Name: hermesConfigVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: instance.Spec.APISecretRef.Name,
+						Name: configMapName,
 					},
-					Key:      secretKey,
-					Optional: boolPtr(false),
 				},
 			},
 		},
-		{
-			Name:  "HERMES_MAX_TURNS",
-			Value: fmt.Sprintf("%d", maxTurns),
-		},
-		{
-			Name:  "HERMES_PERSONALITY",
-			Value: personality,
-		},
+	}
+}
+
+// buildGatewayEnvVars builds environment variables for the gateway container
+func (r *HermesAgentReconciler) buildGatewayEnvVars(instance *corev1alpha1.HermesAgent, port int) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
 		{
 			Name:  "HERMES_SERVICE_PORT",
 			Value: fmt.Sprintf("%d", port),
@@ -455,7 +500,7 @@ func (r *HermesAgentReconciler) buildDashboardEnvVars(instance *corev1alpha1.Her
 }
 
 // podNeedsUpdate checks if the Pod needs to be updated
-func (r *HermesAgentReconciler) podNeedsUpdate(pod *corev1.Pod, instance *corev1alpha1.HermesAgent) bool {
+func (r *HermesAgentReconciler) podNeedsUpdate(pod *corev1.Pod, instance *corev1alpha1.HermesAgent, configMapName string) bool {
 	// Check image
 	image := instance.Spec.Image
 	if image == "" {
@@ -474,6 +519,11 @@ func (r *HermesAgentReconciler) podNeedsUpdate(pod *corev1.Pod, instance *corev1
 
 	// Check dashboard container
 	if pod.Spec.Containers[1].Name != "dashboard" || pod.Spec.Containers[1].Image != image {
+		return true
+	}
+
+	// Check volumes reference ConfigMap
+	if len(pod.Spec.Volumes) == 0 || pod.Spec.Volumes[0].ConfigMap == nil || pod.Spec.Volumes[0].ConfigMap.Name != configMapName {
 		return true
 	}
 
@@ -688,6 +738,11 @@ func getServiceName(instance *corev1alpha1.HermesAgent) string {
 	return fmt.Sprintf("hermes-agent-%s", instance.Name)
 }
 
+// getConfigMapName returns the ConfigMap name for a HermesAgent
+func getConfigMapName(instance *corev1alpha1.HermesAgent) string {
+	return fmt.Sprintf("hermes-config-%s", instance.Name)
+}
+
 // containsFinalizer checks if the finalizer exists in the instance
 func containsFinalizer(instance *corev1alpha1.HermesAgent, finalizer string) bool {
 	for _, f := range instance.GetFinalizers() {
@@ -709,17 +764,27 @@ func removeFinalizer(instance *corev1alpha1.HermesAgent, finalizer string) []str
 	return finalizers
 }
 
-// boolPtr returns a pointer to a bool value
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *HermesAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.HermesAgent{}).
 		Owns(&corev1.Pod{}).
 		Owns(&corev1.Service{}).
+		Owns(&corev1.ConfigMap{}).
 		Named("hermesagent").
 		Complete(r)
+}
+
+// formatEnvForDisplay formats env vars for display in comments (hiding sensitive values)
+func formatEnvForDisplay(env map[string]string) string {
+	var lines []string
+	for key, value := range env {
+		// Mask values that look like API keys
+		if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "secret") || strings.Contains(strings.ToLower(key), "token") {
+			lines = append(lines, fmt.Sprintf("# %s=***", key))
+		} else {
+			lines = append(lines, fmt.Sprintf("# %s=%s", key, value))
+		}
+	}
+	return strings.Join(lines, "\n")
 }

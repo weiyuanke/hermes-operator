@@ -23,37 +23,6 @@ import (
 
 // HermesAgentSpec defines the desired state of HermesAgent
 type HermesAgentSpec struct {
-	// Model is the AI model name to use.
-	// Examples: "kimi-k2.5", "gpt-4", "claude-3-sonnet"
-	// +required
-	Model string `json:"model"`
-
-	// Provider is the model provider name.
-	// Examples: "kimi-coding-cn", "openai", "openrouter"
-	// +required
-	Provider string `json:"provider"`
-
-	// BaseURL is the API endpoint for the model provider.
-	// Examples: "https://api.moonshot.cn/v1", "https://api.openai.com/v1"
-	// +optional
-	// +kubebuilder:default="https://api.moonshot.cn/v1"
-	BaseURL string `json:"baseURL,omitempty"`
-
-	// APISecretRef is the reference to a Kubernetes Secret containing the API key.
-	// The secret should have a key named "api-key".
-	// +required
-	APISecretRef SecretRef `json:"apiSecretRef"`
-
-	// MaxTurns is the maximum number of conversation turns.
-	// +optional
-	// +kubebuilder:default=90
-	MaxTurns int `json:"maxTurns,omitempty"`
-
-	// Personality is the agent's personality preset.
-	// +optional
-	// +kubebuilder:default="kawaii"
-	Personality string `json:"personality,omitempty"`
-
 	// Image is the container image for Hermes agent.
 	// +optional
 	// +kubebuilder:default="docker.io/nousresearch/hermes-agent:latest"
@@ -73,6 +42,21 @@ type HermesAgentSpec struct {
 	// +kubebuilder:validation:Maximum=65535
 	DashboardPort int `json:"dashboardPort,omitempty"`
 
+	// Env defines environment variables to be written to .env file.
+	// These will be written to /opt/data/.env in the container.
+	// +optional
+	Env map[string]string `json:"env,omitempty"`
+
+	// ConfigYaml defines the content of config.yaml file.
+	// This will be written to /opt/data/config.yaml in the container.
+	// +optional
+	ConfigYaml string `json:"configYaml,omitempty"`
+
+	// SoulMd defines the content of SOUL.md file.
+	// This will be written to /opt/data/SOUL.md in the container.
+	// +optional
+	SoulMd string `json:"soulMd,omitempty"`
+
 	// GatewayResources defines the compute resources for the gateway container.
 	// +optional
 	GatewayResources corev1.ResourceRequirements `json:"gatewayResources,omitempty"`
@@ -80,23 +64,6 @@ type HermesAgentSpec struct {
 	// DashboardResources defines the compute resources for the dashboard container.
 	// +optional
 	DashboardResources corev1.ResourceRequirements `json:"dashboardResources,omitempty"`
-}
-
-// SecretRef is a reference to a Kubernetes Secret
-type SecretRef struct {
-	// Name is the name of the Secret.
-	// +required
-	Name string `json:"name"`
-
-	// Namespace is the namespace of the Secret.
-	// If not specified, the same namespace as the HermesAgent is used.
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
-
-	// Key is the key in the Secret data. Defaults to "api-key".
-	// +optional
-	// +kubebuilder:default="api-key"
-	Key string `json:"key,omitempty"`
 }
 
 // HermesAgentStatus defines the observed state of HermesAgent
@@ -146,8 +113,6 @@ type HermesAgentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model",description="AI model"
-// +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider",description="Model provider"
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="Current phase"
 // +kubebuilder:printcolumn:name="Gateway",type="string",JSONPath=".status.gatewayEndpoint",description="Gateway endpoint"
 // +kubebuilder:printcolumn:name="Dashboard",type="string",JSONPath=".status.dashboardEndpoint",description="Dashboard endpoint"

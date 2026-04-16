@@ -1,44 +1,40 @@
-# HermesAgent example with gateway and dashboard
+# HermesAgent example
 # This creates a pod with two containers:
 #   - gateway: runs `gateway run --verbose` (port 8642)
 #   - dashboard: runs `dashboard --host 0.0.0.0 --insecure` (port 9119)
+#
+# Configuration files (.env, config.yaml, SOUL.md) are written to /opt/data/ in the containers
 
 apiVersion: core.hermes.io/v1
 kind: HermesAgent
 metadata:
   name: my-hermes-agent
 spec:
-  # Required: AI model name
-  model: kimi-k2.5
-
-  # Required: model provider
-  provider: kimi-coding-cn
-
-  # Required: reference to Secret with API key
-  # Create the secret first:
-  # kubectl create secret generic kimi-api-key --from-literal=api-key=your-api-key
-  apiSecretRef:
-    name: kimi-api-key
-    # namespace: default  # optional, defaults to same namespace
-
-  # Optional: API endpoint (defaults to https://api.moonshot.cn/v1)
-  # baseURL: https://api.openai.com/v1
-
-  # Optional: max conversation turns (defaults to 90)
-  # maxTurns: 90
-
-  # Optional: personality preset (defaults to "kawaii")
-  # Available: kawaii, helpful, concise, technical, creative, teacher, etc.
-  # personality: kawaii
-
   # Optional: container image (defaults to docker.io/nousresearch/hermes-agent:latest)
-  # image: docker.io/nousresearch/hermes-agent:latest
+  image: docker.io/nousresearch/hermes-agent:latest
 
   # Optional: gateway port (defaults to 8642)
-  # gatewayPort: 8642
+  gatewayPort: 8642
 
   # Optional: dashboard port (defaults to 9119)
-  # dashboardPort: 9119
+  dashboardPort: 9119
+
+  # Environment variables - will be written to /opt/data/.env
+  # These can include HERMES_MODEL, HERMES_PROVIDER, HERMES_API_KEY, etc.
+  env:
+    HERMES_MODEL: kimi-k2.5
+    HERMES_PROVIDER: kimi-coding-cn
+    HERMES_BASE_URL: https://api.moonshot.cn/v1
+    # Note: For API keys, create a Secret and reference it in env vars:
+    # HERMES_API_KEY: ${API_KEY}  (reference external Secret)
+
+  # Optional: config.yaml content - will be written to /opt/data/config.yaml
+  # configYaml: |
+  #   # your config.yaml content here
+
+  # Optional: SOUL.md content - will be written to /opt/data/SOUL.md
+  # soulMd: |
+  #   # Your soul/character settings here
 
   # Optional: gateway compute resources (defaults: 2 CPU, 4Gi memory)
   # gatewayResources:
