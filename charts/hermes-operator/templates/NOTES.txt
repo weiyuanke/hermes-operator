@@ -1,0 +1,49 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+== REST API ==
+
+The Hermes Operator REST API is available at port {{ .Values.apiServer.port }}.
+
+To port-forward to access the API locally:
+
+  $ kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "hermes-operator.fullname" . }}-api {{ .Values.apiServer.port }}:{{ .Values.apiServer.port }}
+
+== Create a HermesAgent ==
+
+1. First, create a Secret with your API key:
+
+   $ kubectl create secret generic my-api-key --from-literal=api-key=YOUR_API_KEY
+
+2. Create a HermesAgent:
+
+   $ cat <<EOF | kubectl apply -f -
+   apiVersion: core.hermes.io/v1
+   kind: HermesAgent
+   metadata:
+     name: my-agent
+   spec:
+     model: kimi-k2.5
+     provider: kimi-coding-cn
+     apiSecretRef:
+       name: my-api-key
+   EOF
+
+3. Check the status:
+
+   $ kubectl get hermesagent
+   $ kubectl describe hermesagent my-agent
+
+== API Endpoints ==
+
+- List all agents: GET http://localhost:{{ .Values.apiServer.port }}/api/v1/hermesagents
+- Get agent: GET http://localhost:{{ .Values.apiServer.port }}/api/v1/hermesagent/{name}
+- Create agent: POST http://localhost:{{ .Values.apiServer.port }}/api/v1/hermesagents
+- Delete agent: DELETE http://localhost:{{ .Values.apiServer.port }}/api/v1/hermesagent/{name}
+- Health check: GET http://localhost:{{ .Values.apiServer.port }}/healthz

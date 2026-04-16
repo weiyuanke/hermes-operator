@@ -1,0 +1,92 @@
+# Default values for hermes-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Namespace for the operator
+namespace: hermes-operator-system
+
+# Image configuration
+image:
+  repository: ghcr.io/weiyuanke/hermes-operator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Image pull secrets (if needed)
+imagePullSecrets: []
+
+# Operator configuration
+operator:
+  # Number of operator replicas
+  replicas: 1
+  
+  # Log level: DEBUG, INFO, WARN, ERROR
+  logLevel: INFO
+  
+  # Leader election
+  leaderElect: true
+  
+  # Health probe bind address
+  healthProbeBindAddress: ":8081"
+
+# REST API server configuration
+apiServer:
+  # Enable REST API server
+  enabled: true
+  # REST API server port
+  port: 8090
+
+# Service configuration
+service:
+  # Service type: ClusterIP, NodePort, LoadBalancer
+  type: ClusterIP
+  # Metrics port
+  metricsPort: 8080
+
+# Resources for the operator container
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Node selector for the operator pod
+nodeSelector: {}
+
+# Tolerations for the operator pod
+tolerations: []
+
+# Affinity for the operator pod
+affinity: {}
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# CRD configuration
+crds:
+  # Install CRDs
+  install: true
+  # Keep CRDs on uninstall
+  keep: true
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+
+# Prometheus monitoring
+prometheus:
+  # Enable Prometheus metrics
+  enabled: false
