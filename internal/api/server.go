@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,57 +17,57 @@ import (
 )
 
 const (
-	apiGroup   = "/api/v1"
+	apiGroup    = "/api/v1"
 	contentType = "application/json"
 )
 
 // Server represents the REST API server
 type Server struct {
-	client    client.Client
-	scheme    *runtime.Scheme
-	mux       *http.ServeMux
-	port      int
-	log       logr.Logger
+	client client.Client
+	scheme *runtime.Scheme
+	mux    *http.ServeMux
+	port   int
+	log    logr.Logger
 }
 
 // HermesAgentRequest represents the request body for creating a HermesAgent
 type HermesAgentRequest struct {
-	Name                 string            `json:"name"`
-	Namespace            string            `json:"namespace,omitempty"`
-	Image                string            `json:"image,omitempty"`
-	ImagePullPolicy      string            `json:"imagePullPolicy,omitempty"`
-	ServicePort          int32             `json:"servicePort,omitempty"`
-	Config               map[string]string `json:"config,omitempty"`
-	Labels               map[string]string `json:"labels,omitempty"`
-	Annotations          map[string]string `json:"annotations,omitempty"`
-	Resources            *corev1.ResourceRequirements `json:"resources,omitempty"`
-	Model                string            `json:"model,omitempty"`
-	APIKeySecretRef      *SecretRef        `json:"apiKeySecretRef,omitempty"`
-	Tools                []string          `json:"tools,omitempty"`
-	MaxIterations        int32             `json:"maxIterations,omitempty"`
-	SystemPrompt         string            `json:"systemPrompt,omitempty"`
+	Name         string            `json:"name"`
+	Namespace    string            `json:"namespace,omitempty"`
+	Model        string            `json:"model"`
+	Provider     string            `json:"provider"`
+	BaseURL      string            `json:"baseURL,omitempty"`
+	APISecretRef SecretRefRequest  `json:"apiSecretRef"`
+	MaxTurns     int               `json:"maxTurns,omitempty"`
+	Personality  string            `json:"personality,omitempty"`
+	Image        string            `json:"image,omitempty"`
+	ServicePort  int               `json:"servicePort,omitempty"`
 }
 
-// SecretRef represents a reference to a Kubernetes Secret
-type SecretRef struct {
+// SecretRefRequest represents a reference to a Kubernetes Secret in API requests
+type SecretRefRequest struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
+	Key       string `json:"key,omitempty"`
 }
 
 // HermesAgentResponse represents the response for a HermesAgent
 type HermesAgentResponse struct {
-	Name                 string            `json:"name"`
-	Namespace            string            `json:"namespace"`
-	Image                string            `json:"image,omitempty"`
-	ServicePort          int32             `json:"servicePort"`
-	Phase                string            `json:"phase,omitempty"`
-	Endpoint             string            `json:"endpoint,omitempty"`
-	PodIP                string            `json:"podIP,omitempty"`
-	ReadyReplicas        int32             `json:"readyReplicas,omitempty"`
-	Labels               map[string]string `json:"labels,omitempty"`
-	Annotations          map[string]string `json:"annotations,omitempty"`
-	Conditions           []Condition       `json:"conditions,omitempty"`
-	CreationTimestamp    metav1.Time       `json:"creationTimestamp,omitempty"`
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace"`
+	Model             string            `json:"model"`
+	Provider          string            `json:"provider"`
+	BaseURL           string            `json:"baseURL,omitempty"`
+	MaxTurns          int               `json:"maxTurns,omitempty"`
+	Personality       string            `json:"personality,omitempty"`
+	Image             string            `json:"image,omitempty"`
+	ServicePort       int               `json:"servicePort,omitempty"`
+	Phase             string            `json:"phase,omitempty"`
+	Endpoint          string            `json:"endpoint,omitempty"`
+	PodIP             string            `json:"podIP,omitempty"`
+	ServiceName       string            `json:"serviceName,omitempty"`
+	Conditions        []Condition       `json:"conditions,omitempty"`
+	CreationTimestamp metav1.Time       `json:"creationTimestamp,omitempty"`
 }
 
 // Condition represents a condition of the HermesAgent
@@ -309,6 +308,18 @@ func (s *Server) createHermesAgent(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, http.StatusBadRequest, "Name is required")
 		return
 	}
+	if req.Model == "" {
+		s.respondError(w, http.StatusBadRequest, "Model is required")
+		return
+	}
+	if req.Provider == "" {
+		s.respondError(w, http.StatusBadRequest, "Provider is required")
+		return
+	}
+	if req.APISecretRef.Name == "" {
+		s.respondError(w, http.StatusBadRequest, "APISecretRef.name is required")
+		return
+	}
 
 	namespace := req.Namespace
 	if namespace == "" {
@@ -332,43 +343,21 @@ func (s *Server) createHermesAgent(w http.ResponseWriter, r *http.Request) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
 			Namespace: namespace,
-			Labels:    req.Labels,
-			Annotations: req.Annotations,
 		},
 		Spec: corev1alpha1.HermesAgentSpec{
-			Image:           req.Image,
-			ServicePort:     req.ServicePort,
-			Config:          req.Config,
-			Labels:          req.Labels,
-			Annotations:     req.Annotations,
-			Resources:       corev1.ResourceRequirements{},
+			Model:    req.Model,
+			Provider: req.Provider,
+			BaseURL:  req.BaseURL,
+			APISecretRef: corev1alpha1.SecretRef{
+				Name:      req.APISecretRef.Name,
+				Namespace: req.APISecretRef.Namespace,
+				Key:       req.APISecretRef.Key,
+			},
+			MaxTurns:    req.MaxTurns,
+			Personality: req.Personality,
+			Image:       req.Image,
+			ServicePort: req.ServicePort,
 		},
-	}
-
-	// Set image pull policy
-	if req.ImagePullPolicy != "" {
-		instance.Spec.ImagePullPolicy = corev1.PullPolicy(req.ImagePullPolicy)
-	}
-
-	// Set resources
-	if req.Resources != nil {
-		instance.Spec.Resources = *req.Resources
-	}
-
-	// Set Hermes config
-	if req.Model != "" || len(req.Tools) > 0 || req.APIKeySecretRef != nil {
-		instance.Spec.HermesConfig = &corev1alpha1.HermesConfigSpec{
-			Model:          req.Model,
-			Tools:          req.Tools,
-			MaxIterations:  req.MaxIterations,
-			SystemPrompt:   req.SystemPrompt,
-		}
-		if req.APIKeySecretRef != nil {
-			instance.Spec.HermesConfig.APIKeySecretRef = &corev1alpha1.SecretRef{
-				Name:      req.APIKeySecretRef.Name,
-				Namespace: req.APIKeySecretRef.Namespace,
-			}
-		}
 	}
 
 	if err := s.client.Create(ctx, instance); err != nil {
@@ -425,28 +414,35 @@ func (s *Server) patchHermesAgent(w http.ResponseWriter, r *http.Request, namesp
 	}
 
 	// Update spec
+	if req.Model != "" {
+		instance.Spec.Model = req.Model
+	}
+	if req.Provider != "" {
+		instance.Spec.Provider = req.Provider
+	}
+	if req.BaseURL != "" {
+		instance.Spec.BaseURL = req.BaseURL
+	}
+	if req.APISecretRef.Name != "" {
+		instance.Spec.APISecretRef.Name = req.APISecretRef.Name
+		if req.APISecretRef.Namespace != "" {
+			instance.Spec.APISecretRef.Namespace = req.APISecretRef.Namespace
+		}
+		if req.APISecretRef.Key != "" {
+			instance.Spec.APISecretRef.Key = req.APISecretRef.Key
+		}
+	}
+	if req.MaxTurns != 0 {
+		instance.Spec.MaxTurns = req.MaxTurns
+	}
+	if req.Personality != "" {
+		instance.Spec.Personality = req.Personality
+	}
 	if req.Image != "" {
 		instance.Spec.Image = req.Image
 	}
-	if req.ImagePullPolicy != "" {
-		instance.Spec.ImagePullPolicy = corev1.PullPolicy(req.ImagePullPolicy)
-	}
 	if req.ServicePort != 0 {
 		instance.Spec.ServicePort = req.ServicePort
-	}
-	if req.Config != nil {
-		instance.Spec.Config = req.Config
-	}
-	if req.Labels != nil {
-		instance.Labels = req.Labels
-		instance.Spec.Labels = req.Labels
-	}
-	if req.Annotations != nil {
-		instance.Annotations = req.Annotations
-		instance.Spec.Annotations = req.Annotations
-	}
-	if req.Resources != nil {
-		instance.Spec.Resources = *req.Resources
 	}
 
 	if err := s.client.Update(ctx, instance); err != nil {
@@ -462,20 +458,23 @@ func (s *Server) toResponse(instance *corev1alpha1.HermesAgent) HermesAgentRespo
 	resp := HermesAgentResponse{
 		Name:              instance.Name,
 		Namespace:         instance.Namespace,
+		Model:             instance.Spec.Model,
+		Provider:          instance.Spec.Provider,
+		BaseURL:           instance.Spec.BaseURL,
+		MaxTurns:          instance.Spec.MaxTurns,
+		Personality:       instance.Spec.Personality,
 		Image:             instance.Spec.Image,
 		ServicePort:       instance.Spec.ServicePort,
 		Phase:             instance.Status.Phase,
 		Endpoint:          instance.Status.Endpoint,
 		PodIP:             instance.Status.PodIP,
-		ReadyReplicas:     instance.Status.ReadyReplicas,
-		Labels:            instance.Labels,
-		Annotations:       instance.Annotations,
+		ServiceName:       instance.Status.ServiceName,
 		CreationTimestamp: instance.CreationTimestamp,
 		Conditions:        make([]Condition, 0),
 	}
 
 	if instance.Spec.Image == "" {
-		resp.Image = "ghcr.io/hermes-project/hermes-agent:latest"
+		resp.Image = "ghcr.io/aisuko/hermes:latest"
 	}
 
 	for _, cond := range instance.Status.Conditions {

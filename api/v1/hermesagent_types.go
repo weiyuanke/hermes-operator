@@ -23,95 +23,52 @@ import (
 
 // HermesAgentSpec defines the desired state of HermesAgent
 type HermesAgentSpec struct {
-	// Image is the container image for Hermes agent.
-	// If not specified, a default image will be used.
+	// Model is the AI model name to use.
+	// Examples: "kimi-k2.5", "gpt-4", "claude-3-sonnet"
+	// +required
+	Model string `json:"model"`
+
+	// Provider is the model provider name.
+	// Examples: "kimi-coding-cn", "openai", "openrouter"
+	// +required
+	Provider string `json:"provider"`
+
+	// BaseURL is the API endpoint for the model provider.
+	// Examples: "https://api.moonshot.cn/v1", "https://api.openai.com/v1"
 	// +optional
+	// +kubebuilder:default="https://api.moonshot.cn/v1"
+	BaseURL string `json:"baseURL,omitempty"`
+
+	// APISecretRef is the reference to a Kubernetes Secret containing the API key.
+	// The secret should have a key named "api-key".
+	// +required
+	APISecretRef SecretRef `json:"apiSecretRef"`
+
+	// MaxTurns is the maximum number of conversation turns.
+	// +optional
+	// +kubebuilder:default=90
+	MaxTurns int `json:"maxTurns,omitempty"`
+
+	// Personality is the agent's personality preset.
+	// +optional
+	// +kubebuilder:default="kawaii"
+	Personality string `json:"personality,omitempty"`
+
+	// Image is the container image for Hermes agent.
+	// +optional
+	// +kubebuilder:default="ghcr.io/aisuko/hermes:latest"
 	Image string `json:"image,omitempty"`
 
-	// ImagePullPolicy is the image pull policy for the container.
+	// ServicePort is the port where the Hermes agent service will listen.
 	// +optional
-	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
-
-	// Replicas is the number of Hermes agent pods to run.
-	// Currently only supports 1 (one Hermes agent per CR).
-	// +optional
+	// +kubebuilder:default=8000
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=1
-	Replicas int32 `json:"replicas,omitempty"`
+	// +kubebuilder:validation:Maximum=65535
+	ServicePort int `json:"servicePort,omitempty"`
 
 	// Resources defines the compute resources for the Hermes agent pod.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
-
-	// ServicePort is the port where the Hermes agent service will listen.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=65535
-	ServicePort int32 `json:"servicePort,omitempty"`
-
-	// Config contains custom configuration for the Hermes agent.
-	// +optional
-	Config map[string]string `json:"config,omitempty"`
-
-	// ServiceAccountName is the name of the ServiceAccount to use for the Pod.
-	// +optional
-	ServiceAccountName string `json:"serviceAccountName,omitempty"`
-
-	// NodeSelector is a map of key-value pairs to select the node for the Pod.
-	// +optional
-	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
-
-	// Tolerations allows the Pod to be scheduled on nodes with taints.
-	// +optional
-	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
-
-	// Affinity defines the scheduling constraints for the Pod.
-	// +optional
-	Affinity *corev1.Affinity `json:"affinity,omitempty"`
-
-	// Volumes defines additional volumes to mount into the container.
-	// +optional
-	Volumes []corev1.Volume `json:"volumes,omitempty"`
-
-	// VolumeMounts defines the volume mounts for the container.
-	// +optional
-	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
-
-	// Labels are additional labels to add to the Pod.
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-
-	// Annotations are additional annotations to add to the Pod.
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
-
-	// HermesConfig is the configuration for the Hermes agent itself.
-	// +optional
-	HermesConfig *HermesConfigSpec `json:"hermesConfig,omitempty"`
-}
-
-// HermesConfigSpec defines the Hermes agent configuration
-type HermesConfigSpec struct {
-	// Model is the AI model to use (e.g., "gpt-4", "claude-3", etc.).
-	// +optional
-	Model string `json:"model,omitempty"`
-
-	// APIKeySecretRef is the reference to a Kubernetes Secret containing the API key.
-	// The secret should have a key named "api-key".
-	// +optional
-	APIKeySecretRef *SecretRef `json:"apiKeySecretRef,omitempty"`
-
-	// Tools is the list of tools enabled for the Hermes agent.
-	// +optional
-	Tools []string `json:"tools,omitempty"`
-
-	// MaxIterations is the maximum number of iterations for the agent.
-	// +optional
-	MaxIterations int32 `json:"maxIterations,omitempty"`
-
-	// SystemPrompt is the system prompt for the Hermes agent.
-	// +optional
-	SystemPrompt string `json:"systemPrompt,omitempty"`
 }
 
 // SecretRef is a reference to a Kubernetes Secret
@@ -124,14 +81,15 @@ type SecretRef struct {
 	// If not specified, the same namespace as the HermesAgent is used.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
+
+	// Key is the key in the Secret data. Defaults to "api-key".
+	// +optional
+	// +kubebuilder:default="api-key"
+	Key string `json:"key,omitempty"`
 }
 
-// HermesAgentStatus defines the observed state of HermesAgent.
+// HermesAgentStatus defines the observed state of HermesAgent
 type HermesAgentStatus struct {
-	// PodName is the name of the Hermes agent Pod.
-	// +optional
-	PodName string `json:"podName,omitempty"`
-
 	// Phase is the current phase of the Hermes agent.
 	// +optional
 	Phase string `json:"phase,omitempty"`
@@ -142,23 +100,23 @@ type HermesAgentStatus struct {
 
 	// ServicePort is the port where the Hermes agent service is exposed.
 	// +optional
-	ServicePort int32 `json:"servicePort,omitempty"`
+	ServicePort int `json:"servicePort,omitempty"`
 
-	// Endpoint is the HTTP endpoint where the Hermes agent can be accessed.
+	// PodName is the name of the Hermes agent Pod.
 	// +optional
-	Endpoint string `json:"endpoint,omitempty"`
+	PodName string `json:"podName,omitempty"`
 
 	// PodIP is the IP address of the Hermes agent Pod.
 	// +optional
 	PodIP string `json:"podIP,omitempty"`
 
+	// Endpoint is the HTTP endpoint where the Hermes agent can be accessed.
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
 	// StartedAt is the time when the Hermes agent was started.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
-
-	// ReadyReplicas is the number of ready Hermes agent replicas.
-	// +optional
-	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
 
 	// conditions represent the current state of the HermesAgent resource.
 	// +listType=map
@@ -169,8 +127,9 @@ type HermesAgentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="The current phase of the Hermes agent"
-// +kubebuilder:printcolumn:name="Ready",type="integer",JSONPath=".status.readyReplicas",description="Number of ready replicas"
+// +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model",description="AI model"
+// +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider",description="Model provider"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="Current phase"
 // +kubebuilder:printcolumn:name="Endpoint",type="string",JSONPath=".status.endpoint",description="Service endpoint"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
