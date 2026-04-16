@@ -59,16 +59,27 @@ type HermesAgentSpec struct {
 	// +kubebuilder:default="docker.io/nousresearch/hermes-agent:latest"
 	Image string `json:"image,omitempty"`
 
-	// ServicePort is the port where the Hermes agent service will listen.
+	// GatewayPort is the port where the Hermes gateway service will listen.
 	// +optional
-	// +kubebuilder:default=8000
+	// +kubebuilder:default=8642
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
-	ServicePort int `json:"servicePort,omitempty"`
+	GatewayPort int `json:"gatewayPort,omitempty"`
 
-	// Resources defines the compute resources for the Hermes agent pod.
+	// DashboardPort is the port where the Hermes dashboard service will listen.
 	// +optional
-	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// +kubebuilder:default=9119
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	DashboardPort int `json:"dashboardPort,omitempty"`
+
+	// GatewayResources defines the compute resources for the gateway container.
+	// +optional
+	GatewayResources corev1.ResourceRequirements `json:"gatewayResources,omitempty"`
+
+	// DashboardResources defines the compute resources for the dashboard container.
+	// +optional
+	DashboardResources corev1.ResourceRequirements `json:"dashboardResources,omitempty"`
 }
 
 // SecretRef is a reference to a Kubernetes Secret
@@ -98,9 +109,13 @@ type HermesAgentStatus struct {
 	// +optional
 	ServiceName string `json:"serviceName,omitempty"`
 
-	// ServicePort is the port where the Hermes agent service is exposed.
+	// GatewayPort is the port where the gateway service is exposed.
 	// +optional
-	ServicePort int `json:"servicePort,omitempty"`
+	GatewayPort int `json:"gatewayPort,omitempty"`
+
+	// DashboardPort is the port where the dashboard service is exposed.
+	// +optional
+	DashboardPort int `json:"dashboardPort,omitempty"`
 
 	// PodName is the name of the Hermes agent Pod.
 	// +optional
@@ -110,9 +125,13 @@ type HermesAgentStatus struct {
 	// +optional
 	PodIP string `json:"podIP,omitempty"`
 
-	// Endpoint is the HTTP endpoint where the Hermes agent can be accessed.
+	// GatewayEndpoint is the HTTP endpoint where the Hermes gateway can be accessed.
 	// +optional
-	Endpoint string `json:"endpoint,omitempty"`
+	GatewayEndpoint string `json:"gatewayEndpoint,omitempty"`
+
+	// DashboardEndpoint is the HTTP endpoint where the Hermes dashboard can be accessed.
+	// +optional
+	DashboardEndpoint string `json:"dashboardEndpoint,omitempty"`
 
 	// StartedAt is the time when the Hermes agent was started.
 	// +optional
@@ -130,7 +149,8 @@ type HermesAgentStatus struct {
 // +kubebuilder:printcolumn:name="Model",type="string",JSONPath=".spec.model",description="AI model"
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider",description="Model provider"
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="Current phase"
-// +kubebuilder:printcolumn:name="Endpoint",type="string",JSONPath=".status.endpoint",description="Service endpoint"
+// +kubebuilder:printcolumn:name="Gateway",type="string",JSONPath=".status.gatewayEndpoint",description="Gateway endpoint"
+// +kubebuilder:printcolumn:name="Dashboard",type="string",JSONPath=".status.dashboardEndpoint",description="Dashboard endpoint"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // HermesAgent is the Schema for the hermesagents API

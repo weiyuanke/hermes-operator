@@ -32,16 +32,17 @@ type Server struct {
 
 // HermesAgentRequest represents the request body for creating a HermesAgent
 type HermesAgentRequest struct {
-	Name         string            `json:"name"`
-	Namespace    string            `json:"namespace,omitempty"`
-	Model        string            `json:"model"`
-	Provider     string            `json:"provider"`
-	BaseURL      string            `json:"baseURL,omitempty"`
-	APISecretRef SecretRefRequest  `json:"apiSecretRef"`
-	MaxTurns     int               `json:"maxTurns,omitempty"`
-	Personality  string            `json:"personality,omitempty"`
-	Image        string            `json:"image,omitempty"`
-	ServicePort  int               `json:"servicePort,omitempty"`
+	Name          string           `json:"name"`
+	Namespace     string           `json:"namespace,omitempty"`
+	Model         string           `json:"model"`
+	Provider      string           `json:"provider"`
+	BaseURL       string           `json:"baseURL,omitempty"`
+	APISecretRef  SecretRefRequest `json:"apiSecretRef"`
+	MaxTurns      int              `json:"maxTurns,omitempty"`
+	Personality   string           `json:"personality,omitempty"`
+	Image         string           `json:"image,omitempty"`
+	GatewayPort   int              `json:"gatewayPort,omitempty"`
+	DashboardPort int              `json:"dashboardPort,omitempty"`
 }
 
 // SecretRefRequest represents a reference to a Kubernetes Secret in API requests
@@ -53,21 +54,23 @@ type SecretRefRequest struct {
 
 // HermesAgentResponse represents the response for a HermesAgent
 type HermesAgentResponse struct {
-	Name              string            `json:"name"`
-	Namespace         string            `json:"namespace"`
-	Model             string            `json:"model"`
-	Provider          string            `json:"provider"`
-	BaseURL           string            `json:"baseURL,omitempty"`
-	MaxTurns          int               `json:"maxTurns,omitempty"`
-	Personality       string            `json:"personality,omitempty"`
-	Image             string            `json:"image,omitempty"`
-	ServicePort       int               `json:"servicePort,omitempty"`
-	Phase             string            `json:"phase,omitempty"`
-	Endpoint          string            `json:"endpoint,omitempty"`
-	PodIP             string            `json:"podIP,omitempty"`
-	ServiceName       string            `json:"serviceName,omitempty"`
-	Conditions        []Condition       `json:"conditions,omitempty"`
-	CreationTimestamp metav1.Time       `json:"creationTimestamp,omitempty"`
+	Name              string      `json:"name"`
+	Namespace         string      `json:"namespace"`
+	Model             string      `json:"model"`
+	Provider          string      `json:"provider"`
+	BaseURL           string      `json:"baseURL,omitempty"`
+	MaxTurns          int         `json:"maxTurns,omitempty"`
+	Personality       string      `json:"personality,omitempty"`
+	Image             string      `json:"image,omitempty"`
+	GatewayPort       int         `json:"gatewayPort,omitempty"`
+	DashboardPort     int         `json:"dashboardPort,omitempty"`
+	Phase             string      `json:"phase,omitempty"`
+	GatewayEndpoint   string      `json:"gatewayEndpoint,omitempty"`
+	DashboardEndpoint string      `json:"dashboardEndpoint,omitempty"`
+	PodIP             string      `json:"podIP,omitempty"`
+	ServiceName       string      `json:"serviceName,omitempty"`
+	Conditions        []Condition `json:"conditions,omitempty"`
+	CreationTimestamp metav1.Time `json:"creationTimestamp,omitempty"`
 }
 
 // Condition represents a condition of the HermesAgent
@@ -353,10 +356,11 @@ func (s *Server) createHermesAgent(w http.ResponseWriter, r *http.Request) {
 				Namespace: req.APISecretRef.Namespace,
 				Key:       req.APISecretRef.Key,
 			},
-			MaxTurns:    req.MaxTurns,
-			Personality: req.Personality,
-			Image:       req.Image,
-			ServicePort: req.ServicePort,
+			MaxTurns:      req.MaxTurns,
+			Personality:   req.Personality,
+			Image:         req.Image,
+			GatewayPort:   req.GatewayPort,
+			DashboardPort: req.DashboardPort,
 		},
 	}
 
@@ -441,8 +445,11 @@ func (s *Server) patchHermesAgent(w http.ResponseWriter, r *http.Request, namesp
 	if req.Image != "" {
 		instance.Spec.Image = req.Image
 	}
-	if req.ServicePort != 0 {
-		instance.Spec.ServicePort = req.ServicePort
+	if req.GatewayPort != 0 {
+		instance.Spec.GatewayPort = req.GatewayPort
+	}
+	if req.DashboardPort != 0 {
+		instance.Spec.DashboardPort = req.DashboardPort
 	}
 
 	if err := s.client.Update(ctx, instance); err != nil {
@@ -464,9 +471,11 @@ func (s *Server) toResponse(instance *corev1alpha1.HermesAgent) HermesAgentRespo
 		MaxTurns:          instance.Spec.MaxTurns,
 		Personality:       instance.Spec.Personality,
 		Image:             instance.Spec.Image,
-		ServicePort:       instance.Spec.ServicePort,
+		GatewayPort:       instance.Status.GatewayPort,
+		DashboardPort:     instance.Status.DashboardPort,
 		Phase:             instance.Status.Phase,
-		Endpoint:          instance.Status.Endpoint,
+		GatewayEndpoint:   instance.Status.GatewayEndpoint,
+		DashboardEndpoint: instance.Status.DashboardEndpoint,
 		PodIP:             instance.Status.PodIP,
 		ServiceName:       instance.Status.ServiceName,
 		CreationTimestamp: instance.CreationTimestamp,
@@ -474,7 +483,7 @@ func (s *Server) toResponse(instance *corev1alpha1.HermesAgent) HermesAgentRespo
 	}
 
 	if instance.Spec.Image == "" {
-		resp.Image = "ghcr.io/aisuko/hermes:latest"
+		resp.Image = "docker.io/nousresearch/hermes-agent:latest"
 	}
 
 	for _, cond := range instance.Status.Conditions {

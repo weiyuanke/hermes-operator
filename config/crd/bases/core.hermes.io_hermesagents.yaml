@@ -27,9 +27,13 @@ spec:
       jsonPath: .status.phase
       name: Status
       type: string
-    - description: Service endpoint
-      jsonPath: .status.endpoint
-      name: Endpoint
+    - description: Gateway endpoint
+      jsonPath: .status.gatewayEndpoint
+      name: Gateway
+      type: string
+    - description: Dashboard endpoint
+      jsonPath: .status.dashboardEndpoint
+      name: Dashboard
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -85,31 +89,16 @@ spec:
                   BaseURL is the API endpoint for the model provider.
                   Examples: "https://api.moonshot.cn/v1", "https://api.openai.com/v1"
                 type: string
-              image:
-                default: docker.io/nousresearch/hermes-agent:latest
-                description: Image is the container image for Hermes agent.
-                type: string
-              maxTurns:
-                default: 90
-                description: MaxTurns is the maximum number of conversation turns.
+              dashboardPort:
+                default: 9119
+                description: DashboardPort is the port where the Hermes dashboard
+                  service will listen.
+                maximum: 65535
+                minimum: 1
                 type: integer
-              model:
-                description: |-
-                  Model is the AI model name to use.
-                  Examples: "kimi-k2.5", "gpt-4", "claude-3-sonnet"
-                type: string
-              personality:
-                default: kawaii
-                description: Personality is the agent's personality preset.
-                type: string
-              provider:
-                description: |-
-                  Provider is the model provider name.
-                  Examples: "kimi-coding-cn", "openai", "openrouter"
-                type: string
-              resources:
-                description: Resources defines the compute resources for the Hermes
-                  agent pod.
+              dashboardResources:
+                description: DashboardResources defines the compute resources for
+                  the dashboard container.
                 properties:
                   claims:
                     description: |-
@@ -167,13 +156,95 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
-              servicePort:
-                default: 8000
-                description: ServicePort is the port where the Hermes agent service
+              gatewayPort:
+                default: 8642
+                description: GatewayPort is the port where the Hermes gateway service
                   will listen.
                 maximum: 65535
                 minimum: 1
                 type: integer
+              gatewayResources:
+                description: GatewayResources defines the compute resources for the
+                  gateway container.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              image:
+                default: docker.io/nousresearch/hermes-agent:latest
+                description: Image is the container image for Hermes agent.
+                type: string
+              maxTurns:
+                default: 90
+                description: MaxTurns is the maximum number of conversation turns.
+                type: integer
+              model:
+                description: |-
+                  Model is the AI model name to use.
+                  Examples: "kimi-k2.5", "gpt-4", "claude-3-sonnet"
+                type: string
+              personality:
+                default: kawaii
+                description: Personality is the agent's personality preset.
+                type: string
+              provider:
+                description: |-
+                  Provider is the model provider name.
+                  Examples: "kimi-coding-cn", "openai", "openrouter"
+                type: string
             required:
             - apiSecretRef
             - model
@@ -243,10 +314,22 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              endpoint:
-                description: Endpoint is the HTTP endpoint where the Hermes agent
-                  can be accessed.
+              dashboardEndpoint:
+                description: DashboardEndpoint is the HTTP endpoint where the Hermes
+                  dashboard can be accessed.
                 type: string
+              dashboardPort:
+                description: DashboardPort is the port where the dashboard service
+                  is exposed.
+                type: integer
+              gatewayEndpoint:
+                description: GatewayEndpoint is the HTTP endpoint where the Hermes
+                  gateway can be accessed.
+                type: string
+              gatewayPort:
+                description: GatewayPort is the port where the gateway service is
+                  exposed.
+                type: integer
               phase:
                 description: Phase is the current phase of the Hermes agent.
                 type: string
@@ -260,10 +343,6 @@ spec:
                 description: ServiceName is the name of the Service exposing the Hermes
                   agent.
                 type: string
-              servicePort:
-                description: ServicePort is the port where the Hermes agent service
-                  is exposed.
-                type: integer
               startedAt:
                 description: StartedAt is the time when the Hermes agent was started.
                 format: date-time

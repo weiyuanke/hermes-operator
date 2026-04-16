@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -36,9 +37,11 @@ import (
 )
 
 const (
-	defaultHermesImage  = "ghcr.io/aisuko/hermes:latest"
-	defaultServicePort  = 8000
+	defaultHermesImage   = "docker.io/nousresearch/hermes-agent:latest"
+	defaultGatewayPort   = 8642
+	defaultDashboardPort = 9119
 	hermesAgentFinalizer = "hermesagent.finalizers.hermes.io"
+	hermesDataVolumeName = "hermes-data"
 )
 
 // HermesAgentReconciler reconciles a HermesAgent object
@@ -199,38 +202,111 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 		image = defaultHermesImage
 	}
 
-	// Get service port
-	servicePort := instance.Spec.ServicePort
-	if servicePort == 0 {
-		servicePort = defaultServicePort
+	// Get ports
+	gatewayPort := instance.Spec.GatewayPort
+	if gatewayPort == 0 {
+		gatewayPort = defaultGatewayPort
+	}
+	dashboardPort := instance.Spec.DashboardPort
+	if dashboardPort == 0 {
+		dashboardPort = defaultDashboardPort
 	}
 
-	// Build environment variables
-	envVars := r.buildEnvVars(instance, servicePort)
+	// Build environment variables for gateway
+	gatewayEnvVars := r.buildGatewayEnvVars(instance, gatewayPort)
 
-	// Build container
-	container := corev1.Container{
-		Name:            "hermes-agent",
+	// Build environment variables for dashboard
+	dashboardEnvVars := r.buildDashboardEnvVars(instance, gatewayPort, dashboardPort)
+
+	// Build gateway container
+	gatewayContainer := corev1.Container{
+		Name:            "gateway",
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
+		Args:            []string{"gateway", "run", "--verbose"},
 		Ports: []corev1.ContainerPort{
 			{
-				Name:          "http",
-				ContainerPort: int32(servicePort),
+				Name:          "gateway",
+				ContainerPort: int32(gatewayPort),
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		Env: envVars,
+		Env: gatewayEnvVars,
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      hermesDataVolumeName,
+				MountPath: "/opt/data",
+			},
+		},
 	}
 
-	// Set resource requirements
-	if !reflect.DeepEqual(instance.Spec.Resources, corev1.ResourceRequirements{}) {
-		container.Resources = instance.Spec.Resources
+	// Set gateway resource requirements
+	if !reflect.DeepEqual(instance.Spec.GatewayResources, corev1.ResourceRequirements{}) {
+		gatewayContainer.Resources = instance.Spec.GatewayResources
+	} else {
+		// Default resources for gateway
+		gatewayContainer.Resources = corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourceCPU:    resource.MustParse("2"),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+			},
+		}
+	}
+
+	// Build dashboard container
+	dashboardContainer := corev1.Container{
+		Name:            "dashboard",
+		Image:           image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Args:            []string{"dashboard", "--host", "0.0.0.0", "--insecure"},
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          "dashboard",
+				ContainerPort: int32(dashboardPort),
+				Protocol:      corev1.ProtocolTCP,
+			},
+		},
+		Env: dashboardEnvVars,
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      hermesDataVolumeName,
+				MountPath: "/opt/data",
+			},
+		},
+	}
+
+	// Set dashboard resource requirements
+	if !reflect.DeepEqual(instance.Spec.DashboardResources, corev1.ResourceRequirements{}) {
+		dashboardContainer.Resources = instance.Spec.DashboardResources
+	} else {
+		// Default resources for dashboard
+		dashboardContainer.Resources = corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+			},
+		}
 	}
 
 	// Build Pod spec
 	podSpec := corev1.PodSpec{
-		Containers: []corev1.Container{container},
+		Containers: []corev1.Container{gatewayContainer, dashboardContainer},
+		Volumes: []corev1.Volume{
+			{
+				Name: hermesDataVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			},
+		},
 	}
 
 	// Build Pod labels
@@ -270,8 +346,8 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 	return pod, nil
 }
 
-// buildEnvVars builds environment variables for the container
-func (r *HermesAgentReconciler) buildEnvVars(instance *corev1alpha1.HermesAgent, port int) []corev1.EnvVar {
+// buildGatewayEnvVars builds environment variables for the gateway container
+func (r *HermesAgentReconciler) buildGatewayEnvVars(instance *corev1alpha1.HermesAgent, port int) []corev1.EnvVar {
 	// Get secret key
 	secretKey := instance.Spec.APISecretRef.Key
 	if secretKey == "" {
@@ -310,7 +386,7 @@ func (r *HermesAgentReconciler) buildEnvVars(instance *corev1alpha1.HermesAgent,
 			Value: baseURL,
 		},
 		{
-			Name:  "HERMES_API_KEY",
+			Name: "HERMES_API_KEY",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
@@ -362,6 +438,22 @@ func (r *HermesAgentReconciler) buildEnvVars(instance *corev1alpha1.HermesAgent,
 	return envVars
 }
 
+// buildDashboardEnvVars builds environment variables for the dashboard container
+func (r *HermesAgentReconciler) buildDashboardEnvVars(instance *corev1alpha1.HermesAgent, gatewayPort, dashboardPort int) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "GATEWAY_HEALTH_URL",
+			Value: fmt.Sprintf("http://localhost:%d", gatewayPort),
+		},
+		{
+			Name:  "DASHBOARD_PORT",
+			Value: fmt.Sprintf("%d", dashboardPort),
+		},
+	}
+
+	return envVars
+}
+
 // podNeedsUpdate checks if the Pod needs to be updated
 func (r *HermesAgentReconciler) podNeedsUpdate(pod *corev1.Pod, instance *corev1alpha1.HermesAgent) bool {
 	// Check image
@@ -369,12 +461,37 @@ func (r *HermesAgentReconciler) podNeedsUpdate(pod *corev1.Pod, instance *corev1
 	if image == "" {
 		image = defaultHermesImage
 	}
-	if len(pod.Spec.Containers) > 0 && pod.Spec.Containers[0].Image != image {
+
+	// Check if we have the expected containers
+	if len(pod.Spec.Containers) != 2 {
 		return true
 	}
 
-	// Check resource requirements
-	if len(pod.Spec.Containers) > 0 && !reflect.DeepEqual(pod.Spec.Containers[0].Resources, instance.Spec.Resources) {
+	// Check gateway container
+	if pod.Spec.Containers[0].Name != "gateway" || pod.Spec.Containers[0].Image != image {
+		return true
+	}
+
+	// Check dashboard container
+	if pod.Spec.Containers[1].Name != "dashboard" || pod.Spec.Containers[1].Image != image {
+		return true
+	}
+
+	// Check gateway port
+	gatewayPort := instance.Spec.GatewayPort
+	if gatewayPort == 0 {
+		gatewayPort = defaultGatewayPort
+	}
+	if len(pod.Spec.Containers[0].Ports) == 0 || int(pod.Spec.Containers[0].Ports[0].ContainerPort) != gatewayPort {
+		return true
+	}
+
+	// Check dashboard port
+	dashboardPort := instance.Spec.DashboardPort
+	if dashboardPort == 0 {
+		dashboardPort = defaultDashboardPort
+	}
+	if len(pod.Spec.Containers[1].Ports) == 0 || int(pod.Spec.Containers[1].Ports[0].ContainerPort) != dashboardPort {
 		return true
 	}
 
@@ -386,10 +503,14 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 	reqLogger := log.WithValues("HermesAgent.Name", instance.Name)
 	svcName := getServiceName(instance)
 
-	// Get service port
-	servicePort := instance.Spec.ServicePort
-	if servicePort == 0 {
-		servicePort = defaultServicePort
+	// Get ports
+	gatewayPort := instance.Spec.GatewayPort
+	if gatewayPort == 0 {
+		gatewayPort = defaultGatewayPort
+	}
+	dashboardPort := instance.Spec.DashboardPort
+	if dashboardPort == 0 {
+		dashboardPort = defaultDashboardPort
 	}
 
 	// Get existing Service
@@ -398,7 +519,7 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 
 	// Create Service if it doesn't exist
 	if errors.IsNotFound(err) {
-		svc = createService(instance, svcName, servicePort)
+		svc = createService(instance, svcName, gatewayPort, dashboardPort)
 		if err := r.Create(ctx, svc); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -411,7 +532,7 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 	}
 
 	// Update Service if needed
-	svc = updateService(svc, instance, servicePort)
+	svc = updateService(svc, instance, gatewayPort, dashboardPort)
 	if err := r.Update(ctx, svc); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -419,8 +540,8 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 	return ctrl.Result{}, nil
 }
 
-// createService creates a new Service for HermesAgent
-func createService(instance *corev1alpha1.HermesAgent, svcName string, port int) *corev1.Service {
+// createService creates a new Service for HermesAgent with both gateway and dashboard ports
+func createService(instance *corev1alpha1.HermesAgent, svcName string, gatewayPort, dashboardPort int) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      svcName,
@@ -433,11 +554,19 @@ func createService(instance *corev1alpha1.HermesAgent, svcName string, port int)
 			Type: corev1.ServiceTypeClusterIP,
 			Ports: []corev1.ServicePort{
 				{
-					Name:     "http",
-					Port:     int32(port),
+					Name:     "gateway",
+					Port:     int32(gatewayPort),
 					Protocol: corev1.ProtocolTCP,
 					TargetPort: func() intstr.IntOrString {
-						return intstr.FromInt(port)
+						return intstr.FromInt(gatewayPort)
+					}(),
+				},
+				{
+					Name:     "dashboard",
+					Port:     int32(dashboardPort),
+					Protocol: corev1.ProtocolTCP,
+					TargetPort: func() intstr.IntOrString {
+						return intstr.FromInt(dashboardPort)
 					}(),
 				},
 			},
@@ -450,17 +579,29 @@ func createService(instance *corev1alpha1.HermesAgent, svcName string, port int)
 }
 
 // updateService updates an existing Service
-func updateService(svc *corev1.Service, instance *corev1alpha1.HermesAgent, port int) *corev1.Service {
+func updateService(svc *corev1.Service, instance *corev1alpha1.HermesAgent, gatewayPort, dashboardPort int) *corev1.Service {
 	// Update selector to ensure it matches Pod
 	svc.Spec.Selector = map[string]string{
 		"hermes.io/app":        instance.Name,
 		"hermes.io/managed-by": "hermes-operator",
 	}
 
-	// Update port if needed
-	if len(svc.Spec.Ports) > 0 {
-		svc.Spec.Ports[0].Port = int32(port)
+	// Ensure we have 2 ports
+	if len(svc.Spec.Ports) != 2 {
+		svc.Spec.Ports = make([]corev1.ServicePort, 2)
 	}
+
+	// Update gateway port
+	svc.Spec.Ports[0].Name = "gateway"
+	svc.Spec.Ports[0].Port = int32(gatewayPort)
+	svc.Spec.Ports[0].Protocol = corev1.ProtocolTCP
+	svc.Spec.Ports[0].TargetPort = intstr.FromInt(gatewayPort)
+
+	// Update dashboard port
+	svc.Spec.Ports[1].Name = "dashboard"
+	svc.Spec.Ports[1].Port = int32(dashboardPort)
+	svc.Spec.Ports[1].Protocol = corev1.ProtocolTCP
+	svc.Spec.Ports[1].TargetPort = intstr.FromInt(dashboardPort)
 
 	return svc
 }
@@ -481,16 +622,29 @@ func (r *HermesAgentReconciler) updateStatus(ctx context.Context, instance *core
 		}
 	}
 
+	// Get ports
+	gatewayPort := instance.Spec.GatewayPort
+	if gatewayPort == 0 {
+		gatewayPort = defaultGatewayPort
+	}
+	dashboardPort := instance.Spec.DashboardPort
+	if dashboardPort == 0 {
+		dashboardPort = defaultDashboardPort
+	}
+	instance.Status.GatewayPort = gatewayPort
+	instance.Status.DashboardPort = dashboardPort
+
 	// Update service info
 	svcName := getServiceName(instance)
 	svc := &corev1.Service{}
 	err = r.Get(ctx, client.ObjectKey{Name: svcName, Namespace: instance.Namespace}, svc)
 	if err == nil {
 		instance.Status.ServiceName = svc.Name
-		if len(svc.Spec.Ports) > 0 {
-			instance.Status.ServicePort = int(svc.Spec.Ports[0].Port)
-			instance.Status.Endpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+		if len(svc.Spec.Ports) >= 2 {
+			instance.Status.GatewayEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
 				svc.Name, svc.Namespace, svc.Spec.Ports[0].Port)
+			instance.Status.DashboardEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+				svc.Name, svc.Namespace, svc.Spec.Ports[1].Port)
 		}
 	}
 

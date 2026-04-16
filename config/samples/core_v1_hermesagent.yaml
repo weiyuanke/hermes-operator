@@ -1,8 +1,7 @@
-# Minimal HermesAgent example
-# Only 3 required fields needed to start an agent:
-#   - model: AI model name
-#   - provider: model provider
-#   - apiSecretRef.name: name of Secret containing API key
+# HermesAgent example with gateway and dashboard
+# This creates a pod with two containers:
+#   - gateway: runs `gateway run --verbose` (port 8642)
+#   - dashboard: runs `dashboard --host 0.0.0.0 --insecure` (port 9119)
 
 apiVersion: core.hermes.io/v1
 kind: HermesAgent
@@ -35,14 +34,26 @@ spec:
   # Optional: container image (defaults to docker.io/nousresearch/hermes-agent:latest)
   # image: docker.io/nousresearch/hermes-agent:latest
 
-  # Optional: service port (defaults to 8000)
-  # servicePort: 8000
+  # Optional: gateway port (defaults to 8642)
+  # gatewayPort: 8642
 
-  # Optional: compute resources
-  # resources:
+  # Optional: dashboard port (defaults to 9119)
+  # dashboardPort: 9119
+
+  # Optional: gateway compute resources (defaults: 2 CPU, 4Gi memory)
+  # gatewayResources:
   #   requests:
-  #     memory: "512Mi"
+  #     memory: "1Gi"
   #     cpu: "500m"
   #   limits:
-  #     memory: "1Gi"
-  #     cpu: "1000m"
+  #     memory: "4Gi"
+  #     cpu: "2"
+
+  # Optional: dashboard compute resources (defaults: 500m CPU, 512Mi memory)
+  # dashboardResources:
+  #   requests:
+  #     memory: "128Mi"
+  #     cpu: "100m"
+  #   limits:
+  #     memory: "512Mi"
+  #     cpu: "500m"
