@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/json"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -37,10 +36,9 @@ import (
 )
 
 const (
-	defaultHermesImage    = "ghcr.io/hermes-project/hermes-agent:latest"
-	defaultServicePort    = 8080
-	hermesAgentFinalizer  = "hermesagent.finalizers.hermes.io"
-	podControllerUIDIndex = 0
+	defaultHermesImage  = "ghcr.io/aisuko/hermes:latest"
+	defaultServicePort  = 8000
+	hermesAgentFinalizer = "hermesagent.finalizers.hermes.io"
 )
 
 // HermesAgentReconciler reconciles a HermesAgent object
@@ -68,11 +66,8 @@ func (r *HermesAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	err := r.Get(ctx, req.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Return and don't requeue
 			return reconcile.Result{}, nil
 		}
-		// Error reading the object - requeue the req.
 		return reconcile.Result{}, err
 	}
 
@@ -87,9 +82,9 @@ func (r *HermesAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Reconcile the Pod
-	result, err := r.reconcilePod(ctx, instance)
+	_, err = r.reconcilePod(ctx, instance)
 	if err != nil {
-		return result, err
+		return reconcile.Result{}, err
 	}
 
 	// Reconcile the Service
@@ -113,12 +108,9 @@ func (r *HermesAgentReconciler) handleDeletion(ctx context.Context, instance *co
 	reqLogger.Info("Handling deletion of HermesAgent")
 
 	// Delete the associated Pod
-	podName := r.getPodName(instance)
+	podName := getPodName(instance)
 	pod := &corev1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{
-		Name:      podName,
-		Namespace: instance.Namespace,
-	}, pod)
+	err := r.Get(ctx, client.ObjectKey{Name: podName, Namespace: instance.Namespace}, pod)
 	if err == nil {
 		reqLogger.Info("Deleting Pod", "Pod.Name", podName)
 		if err := r.Delete(ctx, pod); err != nil && !errors.IsNotFound(err) {
@@ -127,12 +119,9 @@ func (r *HermesAgentReconciler) handleDeletion(ctx context.Context, instance *co
 	}
 
 	// Delete the associated Service
-	svcName := r.getServiceName(instance)
+	svcName := getServiceName(instance)
 	svc := &corev1.Service{}
-	err = r.Get(ctx, client.ObjectKey{
-		Name:      svcName,
-		Namespace: instance.Namespace,
-	}, svc)
+	err = r.Get(ctx, client.ObjectKey{Name: svcName, Namespace: instance.Namespace}, svc)
 	if err == nil {
 		reqLogger.Info("Deleting Service", "Service.Name", svcName)
 		if err := r.Delete(ctx, svc); err != nil && !errors.IsNotFound(err) {
@@ -163,26 +152,19 @@ func (r *HermesAgentReconciler) addFinalizer(ctx context.Context, instance *core
 // reconcilePod creates or updates the Pod for HermesAgent
 func (r *HermesAgentReconciler) reconcilePod(ctx context.Context, instance *corev1alpha1.HermesAgent) (ctrl.Result, error) {
 	reqLogger := log.WithValues("HermesAgent.Name", instance.Name)
-	podName := r.getPodName(instance)
+	podName := getPodName(instance)
 
 	// Get existing Pod
 	pod := &corev1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{
-		Name:      podName,
-		Namespace: instance.Namespace,
-	}, pod)
+	err := r.Get(ctx, client.ObjectKey{Name: podName, Namespace: instance.Namespace}, pod)
 
 	// Create Pod if it doesn't exist
 	if errors.IsNotFound(err) {
 		pod, err = r.createPod(ctx, instance)
 		if err != nil {
-			r.setCondition(instance, "PodCreated", metav1.ConditionFalse, "PodCreationFailed", err.Error())
-			r.updateStatus(ctx, instance)
 			return ctrl.Result{}, err
 		}
 		reqLogger.Info("Created Pod", "Pod.Name", pod.Name)
-		r.setCondition(instance, "PodCreated", metav1.ConditionTrue, "PodCreated", "Pod has been created")
-		r.updateStatus(ctx, instance)
 		return ctrl.Result{}, nil
 	}
 
@@ -204,13 +186,12 @@ func (r *HermesAgentReconciler) reconcilePod(ctx context.Context, instance *core
 		reqLogger.Info("Recreated Pod with new spec", "Pod.Name", pod.Name)
 	}
 
-	// Update status based on Pod state
 	return ctrl.Result{}, nil
 }
 
 // createPod creates a new Pod for the HermesAgent
 func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1alpha1.HermesAgent) (*corev1.Pod, error) {
-	podName := r.getPodName(instance)
+	podName := getPodName(instance)
 
 	// Get image
 	image := instance.Spec.Image
@@ -231,11 +212,11 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 	container := corev1.Container{
 		Name:            "hermes-agent",
 		Image:           image,
-		ImagePullPolicy: instance.Spec.ImagePullPolicy,
+		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "http",
-				ContainerPort: servicePort,
+				ContainerPort: int32(servicePort),
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
@@ -247,57 +228,21 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 		container.Resources = instance.Spec.Resources
 	}
 
-	// Set volume mounts
-	if len(instance.Spec.VolumeMounts) > 0 {
-		container.VolumeMounts = instance.Spec.VolumeMounts
-	}
-
 	// Build Pod spec
 	podSpec := corev1.PodSpec{
 		Containers: []corev1.Container{container},
 	}
 
-	// Set service account
-	if instance.Spec.ServiceAccountName != "" {
-		podSpec.ServiceAccountName = instance.Spec.ServiceAccountName
-	}
-
-	// Set node selector
-	if len(instance.Spec.NodeSelector) > 0 {
-		podSpec.NodeSelector = instance.Spec.NodeSelector
-	}
-
-	// Set tolerations
-	if len(instance.Spec.Tolerations) > 0 {
-		podSpec.Tolerations = instance.Spec.Tolerations
-	}
-
-	// Set affinity
-	if instance.Spec.Affinity != nil {
-		podSpec.Affinity = instance.Spec.Affinity
-	}
-
-	// Set volumes
-	if len(instance.Spec.Volumes) > 0 {
-		podSpec.Volumes = instance.Spec.Volumes
-	}
-
 	// Build Pod labels
 	podLabels := map[string]string{
-		"hermes.io/app":          instance.Name,
-		"hermes.io/managed-by":   "hermes-operator",
-		"hermes.io/controller":   "hermesagent",
-	}
-	for k, v := range instance.Spec.Labels {
-		podLabels[k] = v
+		"hermes.io/app":        instance.Name,
+		"hermes.io/managed-by": "hermes-operator",
+		"hermes.io/controller": "hermesagent",
 	}
 
 	// Build Pod annotations
 	podAnnotations := map[string]string{
 		"hermes.io/hermesagent": instance.Namespace + "/" + instance.Name,
-	}
-	for k, v := range instance.Spec.Annotations {
-		podAnnotations[k] = v
 	}
 
 	// Create Pod
@@ -314,9 +259,6 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 		Spec: podSpec,
 	}
 
-	// Set image pull secrets if the image requires authentication
-	// This would typically be done via a ServiceAccount
-
 	if err := ctrl.SetControllerReference(instance, pod, r.Scheme); err != nil {
 		return nil, err
 	}
@@ -329,22 +271,70 @@ func (r *HermesAgentReconciler) createPod(ctx context.Context, instance *corev1a
 }
 
 // buildEnvVars builds environment variables for the container
-func (r *HermesAgentReconciler) buildEnvVars(instance *corev1alpha1.HermesAgent, port int32) []corev1.EnvVar {
+func (r *HermesAgentReconciler) buildEnvVars(instance *corev1alpha1.HermesAgent, port int) []corev1.EnvVar {
+	// Get secret key
+	secretKey := instance.Spec.APISecretRef.Key
+	if secretKey == "" {
+		secretKey = "api-key"
+	}
+
+	// Get base URL
+	baseURL := instance.Spec.BaseURL
+	if baseURL == "" {
+		baseURL = "https://api.moonshot.cn/v1"
+	}
+
+	// Get max turns
+	maxTurns := instance.Spec.MaxTurns
+	if maxTurns == 0 {
+		maxTurns = 90
+	}
+
+	// Get personality
+	personality := instance.Spec.Personality
+	if personality == "" {
+		personality = "kawaii"
+	}
+
 	envVars := []corev1.EnvVar{
 		{
-			Name:  "HERMES_AGENT_NAME",
-			Value: instance.Name,
+			Name:  "HERMES_MODEL",
+			Value: instance.Spec.Model,
 		},
 		{
-			Name:  "HERMES_AGENT_NAMESPACE",
-			Value: instance.Namespace,
+			Name:  "HERMES_PROVIDER",
+			Value: instance.Spec.Provider,
+		},
+		{
+			Name:  "HERMES_BASE_URL",
+			Value: baseURL,
+		},
+		{
+			Name:  "HERMES_API_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: instance.Spec.APISecretRef.Name,
+					},
+					Key:      secretKey,
+					Optional: boolPtr(false),
+				},
+			},
+		},
+		{
+			Name:  "HERMES_MAX_TURNS",
+			Value: fmt.Sprintf("%d", maxTurns),
+		},
+		{
+			Name:  "HERMES_PERSONALITY",
+			Value: personality,
 		},
 		{
 			Name:  "HERMES_SERVICE_PORT",
 			Value: fmt.Sprintf("%d", port),
 		},
 		{
-			Name:  "HERMES_POD_NAME",
+			Name: "HERMES_POD_NAME",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{
 					FieldPath: "metadata.name",
@@ -352,70 +342,21 @@ func (r *HermesAgentReconciler) buildEnvVars(instance *corev1alpha1.HermesAgent,
 			},
 		},
 		{
-			Name:  "HERMES_POD_IP",
+			Name: "HERMES_POD_IP",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{
 					FieldPath: "status.podIP",
 				},
 			},
 		},
-	}
-
-	// Add Hermes configuration as environment variables
-	if instance.Spec.HermesConfig != nil {
-		if instance.Spec.HermesConfig.Model != "" {
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  "HERMES_MODEL",
-				Value: instance.Spec.HermesConfig.Model,
-			})
-		}
-		if instance.Spec.HermesConfig.MaxIterations > 0 {
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  "HERMES_MAX_ITERATIONS",
-				Value: fmt.Sprintf("%d", instance.Spec.HermesConfig.MaxIterations),
-			})
-		}
-		if instance.Spec.HermesConfig.SystemPrompt != "" {
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  "HERMES_SYSTEM_PROMPT",
-				Value: instance.Spec.HermesConfig.SystemPrompt,
-			})
-		}
-		if len(instance.Spec.HermesConfig.Tools) > 0 {
-			toolsJSON, _ := json.Marshal(instance.Spec.HermesConfig.Tools)
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  "HERMES_TOOLS",
-				Value: string(toolsJSON),
-			})
-		}
-		// Reference API key secret
-		if instance.Spec.HermesConfig.APIKeySecretRef != nil {
-			secretNamespace := instance.Namespace
-			if instance.Spec.HermesConfig.APIKeySecretRef.Namespace != "" {
-				secretNamespace = instance.Spec.HermesConfig.APIKeySecretRef.Namespace
-			}
-			envVars = append(envVars, corev1.EnvVar{
-				Name: "HERMES_API_KEY",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: instance.Spec.HermesConfig.APIKeySecretRef.Name,
-						},
-						Key: "api-key",
-					},
+		{
+			Name: "HERMES_NAMESPACE",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "metadata.namespace",
 				},
-			})
-			// Store secret namespace for reference
-			_ = secretNamespace
-		}
-	}
-
-	// Add custom configuration
-	for k, v := range instance.Spec.Config {
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  fmt.Sprintf("HERMES_CONFIG_%s", k),
-			Value: v,
-		})
+			},
+		},
 	}
 
 	return envVars
@@ -443,7 +384,7 @@ func (r *HermesAgentReconciler) podNeedsUpdate(pod *corev1.Pod, instance *corev1
 // reconcileService creates or updates the Service for HermesAgent
 func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *corev1alpha1.HermesAgent) (ctrl.Result, error) {
 	reqLogger := log.WithValues("HermesAgent.Name", instance.Name)
-	svcName := r.getServiceName(instance)
+	svcName := getServiceName(instance)
 
 	// Get service port
 	servicePort := instance.Spec.ServicePort
@@ -453,14 +394,11 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 
 	// Get existing Service
 	svc := &corev1.Service{}
-	err := r.Get(ctx, client.ObjectKey{
-		Name:      svcName,
-		Namespace: instance.Namespace,
-	}, svc)
+	err := r.Get(ctx, client.ObjectKey{Name: svcName, Namespace: instance.Namespace}, svc)
 
 	// Create Service if it doesn't exist
 	if errors.IsNotFound(err) {
-		svc = r.createService(instance, svcName, servicePort)
+		svc = createService(instance, svcName, servicePort)
 		if err := r.Create(ctx, svc); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -473,7 +411,7 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 	}
 
 	// Update Service if needed
-	svc = r.updateService(svc, instance, servicePort)
+	svc = updateService(svc, instance, servicePort)
 	if err := r.Update(ctx, svc); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -482,18 +420,11 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 }
 
 // createService creates a new Service for HermesAgent
-func (r *HermesAgentReconciler) createService(instance *corev1alpha1.HermesAgent, svcName string, port int32) *corev1.Service {
-	// Build service labels
-	svcLabels := map[string]string{
-		"hermes.io/app":        instance.Name,
-		"hermes.io/managed-by": "hermes-operator",
-	}
-
+func createService(instance *corev1alpha1.HermesAgent, svcName string, port int) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      svcName,
 			Namespace: instance.Namespace,
-			Labels:    svcLabels,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(instance, corev1alpha1.GroupVersion.WithKind("HermesAgent")),
 			},
@@ -503,10 +434,10 @@ func (r *HermesAgentReconciler) createService(instance *corev1alpha1.HermesAgent
 			Ports: []corev1.ServicePort{
 				{
 					Name:     "http",
-					Port:     port,
+					Port:     int32(port),
 					Protocol: corev1.ProtocolTCP,
 					TargetPort: func() intstr.IntOrString {
-						return intstr.FromInt(int(port))
+						return intstr.FromInt(port)
 					}(),
 				},
 			},
@@ -519,7 +450,7 @@ func (r *HermesAgentReconciler) createService(instance *corev1alpha1.HermesAgent
 }
 
 // updateService updates an existing Service
-func (r *HermesAgentReconciler) updateService(svc *corev1.Service, instance *corev1alpha1.HermesAgent, port int32) *corev1.Service {
+func updateService(svc *corev1.Service, instance *corev1alpha1.HermesAgent, port int) *corev1.Service {
 	// Update selector to ensure it matches Pod
 	svc.Spec.Selector = map[string]string{
 		"hermes.io/app":        instance.Name,
@@ -528,7 +459,7 @@ func (r *HermesAgentReconciler) updateService(svc *corev1.Service, instance *cor
 
 	// Update port if needed
 	if len(svc.Spec.Ports) > 0 {
-		svc.Spec.Ports[0].Port = port
+		svc.Spec.Ports[0].Port = int32(port)
 	}
 
 	return svc
@@ -536,23 +467,14 @@ func (r *HermesAgentReconciler) updateService(svc *corev1.Service, instance *cor
 
 // updateStatus updates the status of HermesAgent
 func (r *HermesAgentReconciler) updateStatus(ctx context.Context, instance *corev1alpha1.HermesAgent) error {
-	podName := r.getPodName(instance)
+	podName := getPodName(instance)
 	pod := &corev1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{
-		Name:      podName,
-		Namespace: instance.Namespace,
-	}, pod)
+	err := r.Get(ctx, client.ObjectKey{Name: podName, Namespace: instance.Namespace}, pod)
 
 	if err == nil {
 		instance.Status.PodName = pod.Name
 		instance.Status.PodIP = pod.Status.PodIP
 		instance.Status.Phase = string(pod.Status.Phase)
-
-		if pod.Status.Phase == corev1.PodRunning {
-			instance.Status.ReadyReplicas = 1
-		} else {
-			instance.Status.ReadyReplicas = 0
-		}
 
 		if instance.Status.StartedAt == nil && pod.Status.StartTime != nil {
 			instance.Status.StartedAt = pod.Status.StartTime
@@ -560,46 +482,55 @@ func (r *HermesAgentReconciler) updateStatus(ctx context.Context, instance *core
 	}
 
 	// Update service info
-	svcName := r.getServiceName(instance)
+	svcName := getServiceName(instance)
 	svc := &corev1.Service{}
-	err = r.Get(ctx, client.ObjectKey{
-		Name:      svcName,
-		Namespace: instance.Namespace,
-	}, svc)
+	err = r.Get(ctx, client.ObjectKey{Name: svcName, Namespace: instance.Namespace}, svc)
 	if err == nil {
 		instance.Status.ServiceName = svc.Name
-		instance.Status.ServicePort = svc.Spec.Ports[0].Port
-		instance.Status.Endpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-			svc.Name, svc.Namespace, svc.Spec.Ports[0].Port)
+		if len(svc.Spec.Ports) > 0 {
+			instance.Status.ServicePort = int(svc.Spec.Ports[0].Port)
+			instance.Status.Endpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+				svc.Name, svc.Namespace, svc.Spec.Ports[0].Port)
+		}
+	}
+
+	// Set ready condition
+	readyCondition := metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "PodNotReady",
+		Message:            "Waiting for pod to be ready",
+	}
+	if err == nil && pod.Status.Phase == corev1.PodRunning {
+		readyCondition.Status = metav1.ConditionTrue
+		readyCondition.Reason = "PodReady"
+		readyCondition.Message = "Pod is running"
+	}
+
+	// Update or set condition
+	found := false
+	for i, c := range instance.Status.Conditions {
+		if c.Type == "Ready" {
+			instance.Status.Conditions[i] = readyCondition
+			found = true
+			break
+		}
+	}
+	if !found {
+		instance.Status.Conditions = append(instance.Status.Conditions, readyCondition)
 	}
 
 	return r.Status().Update(ctx, instance)
 }
 
-// setCondition sets a condition in the HermesAgent status
-func (r *HermesAgentReconciler) setCondition(instance *corev1alpha1.HermesAgent, condType string, status metav1.ConditionStatus, reason, message string) {
-	now := metav1.Now()
-	instance.Status.Conditions = append(instance.Status.Conditions, metav1.Condition{
-		Type:               condType,
-		Status:             status,
-		LastTransitionTime: now,
-		Reason:             reason,
-		Message:            message,
-	})
-
-	// Update phase based on conditions
-	if condType == "PodCreated" && status == metav1.ConditionTrue {
-		instance.Status.Phase = "Creating"
-	}
-}
-
 // getPodName returns the Pod name for a HermesAgent
-func (r *HermesAgentReconciler) getPodName(instance *corev1alpha1.HermesAgent) string {
+func getPodName(instance *corev1alpha1.HermesAgent) string {
 	return fmt.Sprintf("hermes-agent-%s", instance.Name)
 }
 
 // getServiceName returns the Service name for a HermesAgent
-func (r *HermesAgentReconciler) getServiceName(instance *corev1alpha1.HermesAgent) string {
+func getServiceName(instance *corev1alpha1.HermesAgent) string {
 	return fmt.Sprintf("hermes-agent-%s", instance.Name)
 }
 
@@ -622,6 +553,11 @@ func removeFinalizer(instance *corev1alpha1.HermesAgent, finalizer string) []str
 		}
 	}
 	return finalizers
+}
+
+// boolPtr returns a pointer to a bool value
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 // SetupWithManager sets up the controller with the Manager.
