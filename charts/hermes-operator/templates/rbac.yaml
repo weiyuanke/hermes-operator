@@ -8,6 +8,7 @@ metadata:
   labels:
     {{- include "hermes-operator.labels" . | nindent 4 }}
 ---
+# Leader election Role (namespace-scoped)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -16,25 +17,12 @@ metadata:
   labels:
     {{- include "hermes-operator.labels" . | nindent 4 }}
 rules:
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -52,96 +40,40 @@ subjects:
   name: {{ include "hermes-operator.fullname" . }}
   namespace: {{ .Release.Namespace }}
 ---
+# Manager ClusterRole — mirrors config/rbac/role.yaml exactly
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "hermes-operator.fullname" . }}
+  name: {{ include "hermes-operator.fullname" . }}-manager
   labels:
     {{- include "hermes-operator.labels" . | nindent 4 }}
 rules:
-- apiGroups:
-  - core.hermes.io
-  resources:
-  - hermesagents
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - core.hermes.io
-  resources:
-  - hermesagents/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - core.hermes.io
-  resources:
-  - hermesagents/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - list
-  - watch
-{{- if .Values.prometheus.enabled }}
-- apiGroups:
-  - authentication.k8s.io
-  resources:
-  - tokenreviews
-  verbs:
-  - create
-- apiGroups:
-  - authorization.k8s.io
-  resources:
-  - subjectaccessreviews
-  verbs:
-  - create
-{{- end }}
+- apiGroups: [""]
+  resources: ["configmaps", "persistentvolumeclaims", "services"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["core.hermes.io"]
+  resources: ["hermesagents"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["core.hermes.io"]
+  resources: ["hermesagents/finalizers"]
+  verbs: ["update"]
+- apiGroups: ["core.hermes.io"]
+  resources: ["hermesagents/status"]
+  verbs: ["get", "patch", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "hermes-operator.fullname" . }}
+  name: {{ include "hermes-operator.fullname" . }}-manager
   labels:
     {{- include "hermes-operator.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "hermes-operator.fullname" . }}
+  name: {{ include "hermes-operator.fullname" . }}-manager
 subjects:
 - kind: ServiceAccount
   name: {{ include "hermes-operator.fullname" . }}

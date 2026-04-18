@@ -49,22 +49,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Create the name of the service account to use
-*/}}
-{{- define "hermes-operator.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "hermes-operator.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}
-
-{{/*
-Image full name
+Full image reference: repository already contains the registry prefix.
 */}}
 {{- define "hermes-operator.image" -}}
-{{- $registry := .Values.image.registry | default "ghcr.io" }}
-{{- $repository := .Values.image.repository }}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion }}
-{{- printf "%s/%s:%s" $registry $repository $tag }}
+{{- printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
 {{- end }}

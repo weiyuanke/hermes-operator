@@ -1,48 +1,29 @@
 # Default values for hermes-operator.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
 
-# Namespace for the operator
-namespace: hermes-operator-system
-
-# Image configuration
+# Operator manager image
 image:
-  repository: ghcr.io/weiyuanke/hermes-operator
-  tag: latest
+  repository: docker.io/weiyuanke/hermes-operator
+  tag: "0.0.1"
   pullPolicy: IfNotPresent
 
-# Image pull secrets (if needed)
 imagePullSecrets: []
 
-# Operator configuration
+# Operator Deployment
 operator:
-  # Number of operator replicas
   replicas: 1
-  
-  # Log level: DEBUG, INFO, WARN, ERROR
-  logLevel: INFO
-  
-  # Leader election
   leaderElect: true
-  
-  # Health probe bind address
   healthProbeBindAddress: ":8081"
 
-# REST API server configuration
+# REST API server embedded in the operator
 apiServer:
-  # Enable REST API server
   enabled: true
-  # REST API server port
   port: 8090
 
-# Service configuration
+# Service exposing the operator REST API
 service:
-  # Service type: ClusterIP, NodePort, LoadBalancer
   type: ClusterIP
-  # Metrics port
-  metricsPort: 8080
 
-# Resources for the operator container
+# Operator pod resource requests/limits
 resources:
   limits:
     cpu: 500m
@@ -51,22 +32,17 @@ resources:
     cpu: 10m
     memory: 64Mi
 
-# Node selector for the operator pod
 nodeSelector: {}
-
-# Tolerations for the operator pod
 tolerations: []
-
-# Affinity for the operator pod
 affinity: {}
 
-# Pod security context
+# Pod-level security context for the operator
 podSecurityContext:
   runAsNonRoot: true
   seccompProfile:
     type: RuntimeDefault
 
-# Container security context
+# Container-level security context for the operator manager
 containerSecurityContext:
   readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
@@ -74,19 +50,12 @@ containerSecurityContext:
     drop:
       - ALL
 
-# CRD configuration
+# CRD lifecycle
 crds:
-  # Install CRDs
   install: true
-  # Keep CRDs on uninstall
+  # When true, CRDs are NOT deleted on `helm uninstall`
   keep: true
 
-# RBAC configuration
+# RBAC
 rbac:
-  # Create RBAC resources
   create: true
-
-# Prometheus monitoring
-prometheus:
-  # Enable Prometheus metrics
-  enabled: false

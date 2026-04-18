@@ -1,9 +1,9 @@
 apiVersion: v2
 name: hermes-operator
-description: Kubernetes Operator for Hermes AI Agent - Deploy Hermes as a Service
+description: Kubernetes Operator for Hermes AI Agent
 type: application
-version: 0.1.0
-appVersion: "latest"
+version: 0.2.0
+appVersion: "0.0.1"
 keywords:
   - hermes
   - operator
@@ -12,6 +12,5 @@ keywords:
   - agent
 maintainers:
   - name: Hermes Operator Team
-    email: hermes-operator@bot.local
 sources:
   - https://github.com/weiyuanke/hermes-operator
