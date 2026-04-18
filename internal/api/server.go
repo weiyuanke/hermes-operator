@@ -59,10 +59,13 @@ type HermesAgentResponse struct {
 	DashboardResources corev1.ResourceRequirements `json:"dashboardResources,omitempty"`
 	GatewayEndpoint    string                      `json:"gatewayEndpoint,omitempty"`
 	DashboardEndpoint  string                      `json:"dashboardEndpoint,omitempty"`
+	WebUIEndpoint      string                      `json:"webUIEndpoint,omitempty"`
 	Phase              string                      `json:"phase,omitempty"`
 	DeploymentName     string                      `json:"deploymentName,omitempty"`
 	ReadyReplicas      int32                       `json:"readyReplicas,omitempty"`
 	ServiceName        string                      `json:"serviceName,omitempty"`
+	LoadBalancerServiceName string                 `json:"loadBalancerServiceName,omitempty"`
+	LoadBalancerIngress     string                 `json:"loadBalancerIngress,omitempty"`
 	Conditions         []Condition                 `json:"conditions,omitempty"`
 	CreationTimestamp  metav1.Time                 `json:"creationTimestamp,omitempty"`
 }
@@ -435,10 +438,13 @@ func (s *Server) toResponse(instance *corev1alpha1.HermesAgent) HermesAgentRespo
 		SoulMd:            instance.Spec.SoulMd,
 		GatewayEndpoint:   instance.Status.GatewayEndpoint,
 		DashboardEndpoint: instance.Status.DashboardEndpoint,
+		WebUIEndpoint:     instance.Status.WebUIEndpoint,
 		Phase:             instance.Status.Phase,
-		DeploymentName:    instance.Status.DeploymentName,
-		ReadyReplicas:     instance.Status.ReadyReplicas,
-		ServiceName:       instance.Status.ServiceName,
+		DeploymentName:          instance.Status.DeploymentName,
+		ReadyReplicas:           instance.Status.ReadyReplicas,
+		ServiceName:             instance.Status.ServiceName,
+		LoadBalancerServiceName: instance.Status.LoadBalancerServiceName,
+		LoadBalancerIngress:     instance.Status.LoadBalancerIngress,
 		CreationTimestamp: instance.CreationTimestamp,
 		Conditions:        make([]Condition, 0),
 	}

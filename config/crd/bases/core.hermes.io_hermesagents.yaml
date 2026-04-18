@@ -217,6 +217,78 @@ spec:
                 default: 1Gi
                 description: StorageSize is the size of the PVC that backs /opt/data.
                 type: string
+              webUIApiKey:
+                description: |-
+                  WebUIApiKey is the API key used by Open WebUI to authenticate against the gateway.
+                  Corresponds to OPENAI_API_KEY in the Open WebUI container.
+                type: string
+              webUIPort:
+                description: |-
+                  WebUIPort is the port where the Open WebUI container will listen.
+                  When set to 0 (default), the Open WebUI container is not deployed.
+                maximum: 65535
+                minimum: 0
+                type: integer
+              webUIResources:
+                description: WebUIResources defines the compute resources for the
+                  Open WebUI container.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
             type: object
           status:
             description: status defines the observed state of HermesAgent
@@ -302,6 +374,14 @@ spec:
                 description: GatewayPort is the port where the gateway service is
                   exposed.
                 type: integer
+              loadBalancerIngress:
+                description: LoadBalancerIngress is the external IP or hostname assigned
+                  to the LoadBalancer Service.
+                type: string
+              loadBalancerServiceName:
+                description: LoadBalancerServiceName is the name of the LoadBalancer
+                  Service exposing the Hermes agent externally.
+                type: string
               phase:
                 description: Phase is the current phase of the Hermes agent.
                 type: string
@@ -311,13 +391,18 @@ spec:
                 format: int32
                 type: integer
               serviceName:
-                description: ServiceName is the name of the Service exposing the Hermes
-                  agent.
+                description: ServiceName is the name of the ClusterIP Service exposing
+                  the Hermes agent internally.
                 type: string
               startedAt:
                 description: StartedAt is the time when the Hermes agent Deployment
                   was created.
                 format: date-time
+                type: string
+              webUIEndpoint:
+                description: |-
+                  WebUIEndpoint is the HTTP endpoint where the Open WebUI can be accessed.
+                  Empty when WebUIPort is not configured.
                 type: string
             type: object
         required:

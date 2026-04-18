@@ -1,55 +1,96 @@
 # HermesAgent example
-# This creates a pod with two containers:
-#   - gateway: runs `gateway run --verbose` (port 8642)
-#   - dashboard: runs `dashboard --host 0.0.0.0 --insecure` (port 9119)
 #
-# Configuration files (.env, config.yaml, SOUL.md) are written to /opt/data/ in the containers
+# This creates a Deployment with up to three containers:
+#   - gateway:   runs `gateway run --verbose`            (default port 8642)
+#   - dashboard: runs `dashboard --host 0.0.0.0 --insecure` (default port 9119)
+#   - webui:     Open WebUI, connects to gateway via OpenAI API (optional, enabled by setting webUIPort)
+#
+# On first boot an init container copies .env / config.yaml / SOUL.md from a
+# ConfigMap into a PVC mounted at /opt/data/. Files that already exist are
+# skipped so that in-place edits survive pod restarts.
 
 apiVersion: core.hermes.io/v1
 kind: HermesAgent
 metadata:
   name: my-hermes-agent
 spec:
-  # Optional: container image (defaults to docker.io/nousresearch/hermes-agent:v2026.4.16)
+  # Container image for gateway and dashboard containers.
+  # +optional, defaults to docker.io/nousresearch/hermes-agent:v2026.4.16
   image: docker.io/nousresearch/hermes-agent:v2026.4.16
 
-  # Optional: gateway port (defaults to 8642)
+  # Port the gateway listens on.
+  # +optional, defaults to 8642
   gatewayPort: 8642
 
-  # Optional: dashboard port (defaults to 9119)
+  # Port the dashboard listens on.
+  # +optional, defaults to 9119
   dashboardPort: 9119
 
-  # Environment variables - will be written to /opt/data/.env
-  # These can include HERMES_MODEL, HERMES_PROVIDER, HERMES_API_KEY, etc.
+  # Raw content of /opt/data/.env written by the init container on first boot.
+  # +optional
   env: |
     API_SERVER_ENABLED=true
     API_SERVER_HOST=0.0.0.0
     API_SERVER_KEY=your-secret-key-here
-    # Note: For API keys, create a Secret and reference it in env vars:
-    # HERMES_API_KEY: ${API_KEY}  (reference external Secret)
 
-  # Optional: config.yaml content - will be written to /opt/data/config.yaml
+  # Raw content of /opt/data/config.yaml written by the init container on first boot.
+  # +optional
   # configYaml: |
-  #   # your config.yaml content here
+  #   model: hermes-3
+  #   provider: openai
 
-  # Optional: SOUL.md content - will be written to /opt/data/SOUL.md
+  # Raw content of /opt/data/SOUL.md written by the init container on first boot.
+  # +optional
   # soulMd: |
-  #   # Your soul/character settings here
+  #   You are a helpful assistant.
 
-  # Optional: gateway compute resources (defaults: 2 CPU, 4Gi memory)
+  # Storage class for the PVC that backs /opt/data.
+  # Leave empty to use the cluster default storage class.
+  # +optional
+  # storageClassName: standard
+
+  # Size of the PVC that backs /opt/data.
+  # +optional, defaults to 1Gi
+  # storageSize: "1Gi"
+
+  # Compute resources for the gateway container.
+  # +optional, defaults: requests 500m/1Gi, limits 2/4Gi
   # gatewayResources:
   #   requests:
-  #     memory: "1Gi"
   #     cpu: "500m"
+  #     memory: "1Gi"
   #   limits:
-  #     memory: "4Gi"
   #     cpu: "2"
+  #     memory: "4Gi"
 
-  # Optional: dashboard compute resources (defaults: 500m CPU, 512Mi memory)
+  # Compute resources for the dashboard container.
+  # +optional, defaults: requests 100m/128Mi, limits 500m/512Mi
   # dashboardResources:
   #   requests:
-  #     memory: "128Mi"
   #     cpu: "100m"
+  #     memory: "128Mi"
   #   limits:
-  #     memory: "512Mi"
   #     cpu: "500m"
+  #     memory: "512Mi"
+
+  # --- Open WebUI (optional) ---
+  # Set webUIPort to a non-zero value to add an Open WebUI container
+  # (ghcr.io/open-webui/open-webui:main) that connects to the gateway via the
+  # OpenAI-compatible API at http://localhost:<gatewayPort>/v1.
+  # +optional
+  # webUIPort: 8080
+
+  # API key passed to Open WebUI as OPENAI_API_KEY.
+  # Should match API_SERVER_KEY set in env above.
+  # +optional
+  # webUIApiKey: your-secret-key-here
+
+  # Compute resources for the Open WebUI container.
+  # +optional, defaults: requests 100m/256Mi, limits 500m/1Gi
+  # webUIResources:
+  #   requests:
+  #     cpu: "100m"
+  #     memory: "256Mi"
+  #   limits:
+  #     cpu: "500m"
+  #     memory: "1Gi"

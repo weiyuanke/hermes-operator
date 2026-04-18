@@ -74,6 +74,22 @@ type HermesAgentSpec struct {
 	// +optional
 	// +kubebuilder:default="1Gi"
 	StorageSize string `json:"storageSize,omitempty"`
+
+	// WebUIPort is the port where the Open WebUI container will listen.
+	// When set to 0 (default), the Open WebUI container is not deployed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65535
+	WebUIPort int `json:"webUIPort,omitempty"`
+
+	// WebUIApiKey is the API key used by Open WebUI to authenticate against the gateway.
+	// Corresponds to OPENAI_API_KEY in the Open WebUI container.
+	// +optional
+	WebUIApiKey string `json:"webUIApiKey,omitempty"`
+
+	// WebUIResources defines the compute resources for the Open WebUI container.
+	// +optional
+	WebUIResources corev1.ResourceRequirements `json:"webUIResources,omitempty"`
 }
 
 // HermesAgentStatus defines the observed state of HermesAgent
@@ -82,9 +98,17 @@ type HermesAgentStatus struct {
 	// +optional
 	Phase string `json:"phase,omitempty"`
 
-	// ServiceName is the name of the Service exposing the Hermes agent.
+	// ServiceName is the name of the ClusterIP Service exposing the Hermes agent internally.
 	// +optional
 	ServiceName string `json:"serviceName,omitempty"`
+
+	// LoadBalancerServiceName is the name of the LoadBalancer Service exposing the Hermes agent externally.
+	// +optional
+	LoadBalancerServiceName string `json:"loadBalancerServiceName,omitempty"`
+
+	// LoadBalancerIngress is the external IP or hostname assigned to the LoadBalancer Service.
+	// +optional
+	LoadBalancerIngress string `json:"loadBalancerIngress,omitempty"`
 
 	// GatewayPort is the port where the gateway service is exposed.
 	// +optional
@@ -109,6 +133,11 @@ type HermesAgentStatus struct {
 	// DashboardEndpoint is the HTTP endpoint where the Hermes dashboard can be accessed.
 	// +optional
 	DashboardEndpoint string `json:"dashboardEndpoint,omitempty"`
+
+	// WebUIEndpoint is the HTTP endpoint where the Open WebUI can be accessed.
+	// Empty when WebUIPort is not configured.
+	// +optional
+	WebUIEndpoint string `json:"webUIEndpoint,omitempty"`
 
 	// StartedAt is the time when the Hermes agent Deployment was created.
 	// +optional

@@ -39,6 +39,8 @@ import (
 
 const (
 	defaultHermesImage     = "docker.io/nousresearch/hermes-agent:v2026.4.16"
+	defaultWebUIImage      = "ghcr.io/open-webui/open-webui:main"
+	defaultWebUIListenPort = 8080 // Open WebUI always listens on 8080 inside the container
 	defaultGatewayPort     = 8642
 	defaultDashboardPort   = 9119
 	defaultStorageSize     = "1Gi"
@@ -107,6 +109,11 @@ func (r *HermesAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, err
 	}
 
+	// Reconcile the LoadBalancer Service
+	if _, err := r.reconcileLoadBalancerService(ctx, instance); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	// Update status
 	if err := r.updateStatus(ctx, instance); err != nil {
 		return reconcile.Result{}, err
@@ -138,6 +145,17 @@ func (r *HermesAgentReconciler) handleDeletion(ctx context.Context, instance *co
 	if err == nil {
 		reqLogger.Info("Deleting Service", "Service.Name", svcName)
 		if err := r.Delete(ctx, svc); err != nil && !errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Delete the associated LoadBalancer Service
+	lbSvcName := getLoadBalancerServiceName(instance)
+	lbSvc := &corev1.Service{}
+	err = r.Get(ctx, client.ObjectKey{Name: lbSvcName, Namespace: instance.Namespace}, lbSvc)
+	if err == nil {
+		reqLogger.Info("Deleting LoadBalancer Service", "Service.Name", lbSvcName)
+		if err := r.Delete(ctx, lbSvc); err != nil && !errors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 	}
@@ -348,7 +366,10 @@ func (r *HermesAgentReconciler) buildDeployment(instance *corev1alpha1.HermesAge
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command: []string{
 			"sh", "-c",
-			"for f in /config/*; do dst=/opt/data/$(basename $f); [ -e $dst ] || cp $f $dst; chmod 644 $dst; done",
+			"chown -R 10000:10000 /opt/data; " +
+				"[ -e /opt/data/.env ] || { cp -L /config/.env /opt/data/.env 2>/dev/null && chown 10000:10000 /opt/data/.env && chmod 644 /opt/data/.env; }; " +
+				"[ -e /opt/data/config.yaml ] || { cp -L /config/config.yaml /opt/data/config.yaml 2>/dev/null && chown 10000:10000 /opt/data/config.yaml && chmod 644 /opt/data/config.yaml; }; " +
+				"[ -e /opt/data/SOUL.md ] || { cp -L /config/SOUL.md /opt/data/SOUL.md 2>/dev/null && chown 10000:10000 /opt/data/SOUL.md && chmod 644 /opt/data/SOUL.md; }; true",
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{
@@ -428,6 +449,13 @@ func (r *HermesAgentReconciler) buildDeployment(instance *corev1alpha1.HermesAge
 	}
 
 	replicas := int32(1)
+
+	// Build the container list; append webui container when WebUIPort is configured
+	containers := []corev1.Container{gatewayContainer, dashboardContainer}
+	if instance.Spec.WebUIPort > 0 {
+		containers = append(containers, buildWebUIContainer(instance, gatewayPort))
+	}
+
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deployName,
@@ -458,7 +486,7 @@ func (r *HermesAgentReconciler) buildDeployment(instance *corev1alpha1.HermesAge
 				},
 				Spec: corev1.PodSpec{
 					InitContainers: []corev1.Container{initContainer},
-					Containers:     []corev1.Container{gatewayContainer, dashboardContainer},
+					Containers:     containers,
 					Volumes: []corev1.Volume{
 						{
 							Name: hermesDataVolumeName,
@@ -490,12 +518,69 @@ func (r *HermesAgentReconciler) buildDeployment(instance *corev1alpha1.HermesAge
 	return deploy, nil
 }
 
+// buildWebUIContainer builds the Open WebUI container that connects to the gateway
+// via the OpenAI-compatible API.
+func buildWebUIContainer(instance *corev1alpha1.HermesAgent, gatewayPort int) corev1.Container {
+	apiKey := instance.Spec.WebUIApiKey
+	if apiKey == "" {
+		apiKey = "not-set"
+	}
+
+	c := corev1.Container{
+		Name:            "webui",
+		Image:           defaultWebUIImage,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          "webui",
+				ContainerPort: defaultWebUIListenPort, // Open WebUI always listens on 8080
+				Protocol:      corev1.ProtocolTCP,
+			},
+		},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "OPENAI_API_BASE_URL",
+				Value: fmt.Sprintf("http://localhost:%d/v1", gatewayPort),
+			},
+			{
+				Name:  "OPENAI_API_KEY",
+				Value: apiKey,
+			},
+			{
+				Name:  "PORT",
+				Value: fmt.Sprintf("%d", defaultWebUIListenPort),
+			},
+		},
+	}
+
+	if !reflect.DeepEqual(instance.Spec.WebUIResources, corev1.ResourceRequirements{}) {
+		c.Resources = instance.Spec.WebUIResources
+	} else {
+		c.Resources = corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+			},
+		}
+	}
+	return c
+}
+
 // buildDataVolumeMounts returns the volume mount for /opt/data used by main containers.
 func buildDataVolumeMounts() []corev1.VolumeMount {
 	return []corev1.VolumeMount{
 		{
 			Name:      hermesDataVolumeName,
 			MountPath: "/opt/data",
+		},
+		{
+			Name:      hermesConfigVolumeName,
+			MountPath: "/opt/config",
+			ReadOnly:  true,
 		},
 	}
 }
@@ -579,7 +664,103 @@ func (r *HermesAgentReconciler) reconcileService(ctx context.Context, instance *
 	return ctrl.Result{}, nil
 }
 
-// createService creates a new Service for HermesAgent with both gateway and dashboard ports.
+// reconcileLoadBalancerService creates or updates the LoadBalancer Service for HermesAgent.
+func (r *HermesAgentReconciler) reconcileLoadBalancerService(ctx context.Context, instance *corev1alpha1.HermesAgent) (ctrl.Result, error) {
+	reqLogger := log.WithValues("HermesAgent.Name", instance.Name)
+	lbSvcName := getLoadBalancerServiceName(instance)
+
+	gatewayPort := instance.Spec.GatewayPort
+	if gatewayPort == 0 {
+		gatewayPort = defaultGatewayPort
+	}
+	dashboardPort := instance.Spec.DashboardPort
+	if dashboardPort == 0 {
+		dashboardPort = defaultDashboardPort
+	}
+
+	lbSvc := &corev1.Service{}
+	err := r.Get(ctx, client.ObjectKey{Name: lbSvcName, Namespace: instance.Namespace}, lbSvc)
+
+	if errors.IsNotFound(err) {
+		lbSvc = createLoadBalancerService(instance, lbSvcName, gatewayPort, dashboardPort)
+		if err := r.Create(ctx, lbSvc); err != nil {
+			return ctrl.Result{}, err
+		}
+		reqLogger.Info("Created LoadBalancer Service", "Service.Name", lbSvcName)
+		return ctrl.Result{}, nil
+	}
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	lbSvc = updateLoadBalancerService(lbSvc, instance, gatewayPort, dashboardPort)
+	if err := r.Update(ctx, lbSvc); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// createLoadBalancerService creates a LoadBalancer Service exposing the same ports as the ClusterIP Service.
+func createLoadBalancerService(instance *corev1alpha1.HermesAgent, svcName string, gatewayPort, dashboardPort int) *corev1.Service {
+	ports := buildServicePorts(instance, gatewayPort, dashboardPort)
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svcName,
+			Namespace: instance.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(instance, corev1alpha1.GroupVersion.WithKind("HermesAgent")),
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type:  corev1.ServiceTypeLoadBalancer,
+			Ports: ports,
+			Selector: map[string]string{
+				"hermes.io/app":        instance.Name,
+				"hermes.io/managed-by": "hermes-operator",
+			},
+		},
+	}
+}
+
+// updateLoadBalancerService updates an existing LoadBalancer Service.
+func updateLoadBalancerService(svc *corev1.Service, instance *corev1alpha1.HermesAgent, gatewayPort, dashboardPort int) *corev1.Service {
+	svc.Spec.Selector = map[string]string{
+		"hermes.io/app":        instance.Name,
+		"hermes.io/managed-by": "hermes-operator",
+	}
+	svc.Spec.Ports = buildServicePorts(instance, gatewayPort, dashboardPort)
+	return svc
+}
+
+// buildServicePorts returns the port list shared by both ClusterIP and LoadBalancer Services.
+func buildServicePorts(instance *corev1alpha1.HermesAgent, gatewayPort, dashboardPort int) []corev1.ServicePort {
+	ports := []corev1.ServicePort{
+		{
+			Name:       "gateway",
+			Port:       int32(gatewayPort),
+			Protocol:   corev1.ProtocolTCP,
+			TargetPort: intstr.FromInt(gatewayPort),
+		},
+		{
+			Name:       "dashboard",
+			Port:       int32(dashboardPort),
+			Protocol:   corev1.ProtocolTCP,
+			TargetPort: intstr.FromInt(dashboardPort),
+		},
+	}
+	if instance.Spec.WebUIPort > 0 {
+		ports = append(ports, corev1.ServicePort{
+			Name:       "webui",
+			Port:       int32(instance.Spec.WebUIPort),
+			Protocol:   corev1.ProtocolTCP,
+			TargetPort: intstr.FromInt(defaultWebUIListenPort),
+		})
+	}
+	return ports
+}
+
+// createService creates a new ClusterIP Service for HermesAgent with both gateway and dashboard ports.
 func createService(instance *corev1alpha1.HermesAgent, svcName string, gatewayPort, dashboardPort int) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -590,21 +771,8 @@ func createService(instance *corev1alpha1.HermesAgent, svcName string, gatewayPo
 			},
 		},
 		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeClusterIP,
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "gateway",
-					Port:       int32(gatewayPort),
-					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromInt(gatewayPort),
-				},
-				{
-					Name:       "dashboard",
-					Port:       int32(dashboardPort),
-					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromInt(dashboardPort),
-				},
-			},
+			Type:     corev1.ServiceTypeClusterIP,
+			Ports:    buildServicePorts(instance, gatewayPort, dashboardPort),
 			Selector: map[string]string{
 				"hermes.io/app":        instance.Name,
 				"hermes.io/managed-by": "hermes-operator",
@@ -613,27 +781,13 @@ func createService(instance *corev1alpha1.HermesAgent, svcName string, gatewayPo
 	}
 }
 
-// updateService updates an existing Service.
+// updateService updates an existing ClusterIP Service.
 func updateService(svc *corev1.Service, instance *corev1alpha1.HermesAgent, gatewayPort, dashboardPort int) *corev1.Service {
 	svc.Spec.Selector = map[string]string{
 		"hermes.io/app":        instance.Name,
 		"hermes.io/managed-by": "hermes-operator",
 	}
-
-	if len(svc.Spec.Ports) != 2 {
-		svc.Spec.Ports = make([]corev1.ServicePort, 2)
-	}
-
-	svc.Spec.Ports[0].Name = "gateway"
-	svc.Spec.Ports[0].Port = int32(gatewayPort)
-	svc.Spec.Ports[0].Protocol = corev1.ProtocolTCP
-	svc.Spec.Ports[0].TargetPort = intstr.FromInt(gatewayPort)
-
-	svc.Spec.Ports[1].Name = "dashboard"
-	svc.Spec.Ports[1].Port = int32(dashboardPort)
-	svc.Spec.Ports[1].Protocol = corev1.ProtocolTCP
-	svc.Spec.Ports[1].TargetPort = intstr.FromInt(dashboardPort)
-
+	svc.Spec.Ports = buildServicePorts(instance, gatewayPort, dashboardPort)
 	return svc
 }
 
@@ -677,6 +831,26 @@ func (r *HermesAgentReconciler) updateStatus(ctx context.Context, instance *core
 				svc.Name, svc.Namespace, svc.Spec.Ports[0].Port)
 			instance.Status.DashboardEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
 				svc.Name, svc.Namespace, svc.Spec.Ports[1].Port)
+		}
+		if len(svc.Spec.Ports) >= 3 {
+			instance.Status.WebUIEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+				svc.Name, svc.Namespace, svc.Spec.Ports[2].Port)
+		}
+	}
+
+	// Populate LoadBalancer Service status
+	lbSvcName := getLoadBalancerServiceName(instance)
+	lbSvc := &corev1.Service{}
+	if lbErr := r.Get(ctx, client.ObjectKey{Name: lbSvcName, Namespace: instance.Namespace}, lbSvc); lbErr == nil {
+		instance.Status.LoadBalancerServiceName = lbSvc.Name
+		// Extract the first ingress IP or hostname assigned by the cloud provider
+		if len(lbSvc.Status.LoadBalancer.Ingress) > 0 {
+			ing := lbSvc.Status.LoadBalancer.Ingress[0]
+			if ing.IP != "" {
+				instance.Status.LoadBalancerIngress = ing.IP
+			} else {
+				instance.Status.LoadBalancerIngress = ing.Hostname
+			}
 		}
 	}
 
@@ -727,9 +901,14 @@ func getDeploymentName(instance *corev1alpha1.HermesAgent) string {
 	return fmt.Sprintf("hermes-agent-%s", instance.Name)
 }
 
-// getServiceName returns the Service name for a HermesAgent.
+// getServiceName returns the ClusterIP Service name for a HermesAgent.
 func getServiceName(instance *corev1alpha1.HermesAgent) string {
 	return fmt.Sprintf("hermes-agent-%s", instance.Name)
+}
+
+// getLoadBalancerServiceName returns the LoadBalancer Service name for a HermesAgent.
+func getLoadBalancerServiceName(instance *corev1alpha1.HermesAgent) string {
+	return fmt.Sprintf("hermes-agent-%s-lb", instance.Name)
 }
 
 // getPVCName returns the PVC name for a HermesAgent.
