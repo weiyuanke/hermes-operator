@@ -38,7 +38,7 @@ type HermesAgentRequest struct {
 	Image              string                      `json:"image,omitempty"`
 	GatewayPort        int                         `json:"gatewayPort,omitempty"`
 	DashboardPort      int                         `json:"dashboardPort,omitempty"`
-	Env                map[string]string           `json:"env,omitempty"`
+	Env                string                      `json:"env,omitempty"`
 	ConfigYaml         string                      `json:"configYaml,omitempty"`
 	SoulMd             string                      `json:"soulMd,omitempty"`
 	GatewayResources   corev1.ResourceRequirements `json:"gatewayResources,omitempty"`
@@ -52,7 +52,7 @@ type HermesAgentResponse struct {
 	Image              string                      `json:"image,omitempty"`
 	GatewayPort        int                         `json:"gatewayPort,omitempty"`
 	DashboardPort      int                         `json:"dashboardPort,omitempty"`
-	Env                map[string]string           `json:"env,omitempty"`
+	Env                string                      `json:"env,omitempty"`
 	ConfigYaml         string                      `json:"configYaml,omitempty"`
 	SoulMd             string                      `json:"soulMd,omitempty"`
 	GatewayResources   corev1.ResourceRequirements `json:"gatewayResources,omitempty"`
@@ -60,7 +60,8 @@ type HermesAgentResponse struct {
 	GatewayEndpoint    string                      `json:"gatewayEndpoint,omitempty"`
 	DashboardEndpoint  string                      `json:"dashboardEndpoint,omitempty"`
 	Phase              string                      `json:"phase,omitempty"`
-	PodIP              string                      `json:"podIP,omitempty"`
+	DeploymentName     string                      `json:"deploymentName,omitempty"`
+	ReadyReplicas      int32                       `json:"readyReplicas,omitempty"`
 	ServiceName        string                      `json:"serviceName,omitempty"`
 	Conditions         []Condition                 `json:"conditions,omitempty"`
 	CreationTimestamp  metav1.Time                 `json:"creationTimestamp,omitempty"`
@@ -403,7 +404,7 @@ func (s *Server) patchHermesAgent(w http.ResponseWriter, r *http.Request, namesp
 	if req.DashboardPort != 0 {
 		instance.Spec.DashboardPort = req.DashboardPort
 	}
-	if req.Env != nil {
+	if req.Env != "" {
 		instance.Spec.Env = req.Env
 	}
 	if req.ConfigYaml != "" {
@@ -435,14 +436,15 @@ func (s *Server) toResponse(instance *corev1alpha1.HermesAgent) HermesAgentRespo
 		GatewayEndpoint:   instance.Status.GatewayEndpoint,
 		DashboardEndpoint: instance.Status.DashboardEndpoint,
 		Phase:             instance.Status.Phase,
-		PodIP:             instance.Status.PodIP,
+		DeploymentName:    instance.Status.DeploymentName,
+		ReadyReplicas:     instance.Status.ReadyReplicas,
 		ServiceName:       instance.Status.ServiceName,
 		CreationTimestamp: instance.CreationTimestamp,
 		Conditions:        make([]Condition, 0),
 	}
 
 	if instance.Spec.Image == "" {
-		resp.Image = "docker.io/nousresearch/hermes-agent:latest"
+		resp.Image = "docker.io/nousresearch/hermes-agent:v2026.4.16"
 	}
 
 	for _, cond := range instance.Status.Conditions {

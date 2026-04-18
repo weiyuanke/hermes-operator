@@ -10,8 +10,8 @@ kind: HermesAgent
 metadata:
   name: my-hermes-agent
 spec:
-  # Optional: container image (defaults to docker.io/nousresearch/hermes-agent:latest)
-  image: docker.io/nousresearch/hermes-agent:latest
+  # Optional: container image (defaults to docker.io/nousresearch/hermes-agent:v2026.4.16)
+  image: docker.io/nousresearch/hermes-agent:v2026.4.16
 
   # Optional: gateway port (defaults to 8642)
   gatewayPort: 8642
@@ -21,10 +21,10 @@ spec:
 
   # Environment variables - will be written to /opt/data/.env
   # These can include HERMES_MODEL, HERMES_PROVIDER, HERMES_API_KEY, etc.
-  env:
-    HERMES_MODEL: kimi-k2.5
-    HERMES_PROVIDER: kimi-coding-cn
-    HERMES_BASE_URL: https://api.moonshot.cn/v1
+  env: |
+    API_SERVER_ENABLED=true
+    API_SERVER_HOST=0.0.0.0
+    API_SERVER_KEY=your-secret-key-here
     # Note: For API keys, create a Secret and reference it in env vars:
     # HERMES_API_KEY: ${API_KEY}  (reference external Secret)
 

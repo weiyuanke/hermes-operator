@@ -128,12 +128,10 @@ spec:
                     type: object
                 type: object
               env:
-                additionalProperties:
-                  type: string
                 description: |-
-                  Env defines environment variables to be written to .env file.
-                  These will be written to /opt/data/.env in the container.
-                type: object
+                  Env defines the raw content of the .env file.
+                  This will be written to /opt/data/.env in the container.
+                type: string
               gatewayPort:
                 default: 8642
                 description: GatewayPort is the port where the Hermes gateway service
@@ -202,13 +200,22 @@ spec:
                     type: object
                 type: object
               image:
-                default: docker.io/nousresearch/hermes-agent:latest
+                default: docker.io/nousresearch/hermes-agent:v2026.4.16
                 description: Image is the container image for Hermes agent.
                 type: string
               soulMd:
                 description: |-
                   SoulMd defines the content of SOUL.md file.
                   This will be written to /opt/data/SOUL.md in the container.
+                type: string
+              storageClassName:
+                description: |-
+                  StorageClassName is the storage class for the PVC that backs /opt/data.
+                  If empty, the cluster default storage class is used.
+                type: string
+              storageSize:
+                default: 1Gi
+                description: StorageSize is the size of the PVC that backs /opt/data.
                 type: string
             type: object
           status:
@@ -283,6 +290,10 @@ spec:
                 description: DashboardPort is the port where the dashboard service
                   is exposed.
                 type: integer
+              deploymentName:
+                description: DeploymentName is the name of the Deployment running
+                  the Hermes agent.
+                type: string
               gatewayEndpoint:
                 description: GatewayEndpoint is the HTTP endpoint where the Hermes
                   gateway can be accessed.
@@ -294,18 +305,18 @@ spec:
               phase:
                 description: Phase is the current phase of the Hermes agent.
                 type: string
-              podIP:
-                description: PodIP is the IP address of the Hermes agent Pod.
-                type: string
-              podName:
-                description: PodName is the name of the Hermes agent Pod.
-                type: string
+              readyReplicas:
+                description: ReadyReplicas is the number of ready replicas in the
+                  Deployment.
+                format: int32
+                type: integer
               serviceName:
                 description: ServiceName is the name of the Service exposing the Hermes
                   agent.
                 type: string
               startedAt:
-                description: StartedAt is the time when the Hermes agent was started.
+                description: StartedAt is the time when the Hermes agent Deployment
+                  was created.
                 format: date-time
                 type: string
             type: object

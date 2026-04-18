@@ -25,7 +25,7 @@ import (
 type HermesAgentSpec struct {
 	// Image is the container image for Hermes agent.
 	// +optional
-	// +kubebuilder:default="docker.io/nousresearch/hermes-agent:latest"
+	// +kubebuilder:default="docker.io/nousresearch/hermes-agent:v2026.4.16"
 	Image string `json:"image,omitempty"`
 
 	// GatewayPort is the port where the Hermes gateway service will listen.
@@ -42,10 +42,10 @@ type HermesAgentSpec struct {
 	// +kubebuilder:validation:Maximum=65535
 	DashboardPort int `json:"dashboardPort,omitempty"`
 
-	// Env defines environment variables to be written to .env file.
-	// These will be written to /opt/data/.env in the container.
+	// Env defines the raw content of the .env file.
+	// This will be written to /opt/data/.env in the container.
 	// +optional
-	Env map[string]string `json:"env,omitempty"`
+	Env string `json:"env,omitempty"`
 
 	// ConfigYaml defines the content of config.yaml file.
 	// This will be written to /opt/data/config.yaml in the container.
@@ -64,6 +64,16 @@ type HermesAgentSpec struct {
 	// DashboardResources defines the compute resources for the dashboard container.
 	// +optional
 	DashboardResources corev1.ResourceRequirements `json:"dashboardResources,omitempty"`
+
+	// StorageClassName is the storage class for the PVC that backs /opt/data.
+	// If empty, the cluster default storage class is used.
+	// +optional
+	StorageClassName string `json:"storageClassName,omitempty"`
+
+	// StorageSize is the size of the PVC that backs /opt/data.
+	// +optional
+	// +kubebuilder:default="1Gi"
+	StorageSize string `json:"storageSize,omitempty"`
 }
 
 // HermesAgentStatus defines the observed state of HermesAgent
@@ -84,13 +94,13 @@ type HermesAgentStatus struct {
 	// +optional
 	DashboardPort int `json:"dashboardPort,omitempty"`
 
-	// PodName is the name of the Hermes agent Pod.
+	// DeploymentName is the name of the Deployment running the Hermes agent.
 	// +optional
-	PodName string `json:"podName,omitempty"`
+	DeploymentName string `json:"deploymentName,omitempty"`
 
-	// PodIP is the IP address of the Hermes agent Pod.
+	// ReadyReplicas is the number of ready replicas in the Deployment.
 	// +optional
-	PodIP string `json:"podIP,omitempty"`
+	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
 
 	// GatewayEndpoint is the HTTP endpoint where the Hermes gateway can be accessed.
 	// +optional
@@ -100,7 +110,7 @@ type HermesAgentStatus struct {
 	// +optional
 	DashboardEndpoint string `json:"dashboardEndpoint,omitempty"`
 
-	// StartedAt is the time when the Hermes agent was started.
+	// StartedAt is the time when the Hermes agent Deployment was created.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 
