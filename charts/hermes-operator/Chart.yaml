@@ -3,7 +3,7 @@ name: hermes-operator
 description: Kubernetes Operator for Hermes AI Agent
 type: application
 version: 0.2.0
-appVersion: "0.0.1"
+appVersion: "0.0.5"
 keywords:
   - hermes
   - operator
